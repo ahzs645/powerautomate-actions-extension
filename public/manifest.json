@@ -1,7 +1,7 @@
 {
-  "name": "Power Automate Actions Handler",
-  "description": "Record, copy, and manage Power Automate actions from SharePoint. Capture HTTP requests and duplicate actions between tenants.",
-  "version": "1.0.15",
+  "name": "Power Automate Toolkit",
+  "description": "Record, copy, and manage Power Automate actions. Edit flow definitions as JSON with validation.",
+  "version": "2.0.0",
   "manifest_version": 3,
   "action": {
     "default_popup": "index.html",
@@ -18,13 +18,18 @@
     "background",
     "storage",
     "clipboardRead",
-    "clipboardWrite"
+    "clipboardWrite",
+    "tabs",
+    "notifications"
   ],
   "background": {
     "service_worker": "./static/js/background.js"
   },
   "host_permissions": [
-    "https://*/*"
+    "https://*/*",
+    "*://*.api.flow.microsoft.com/*",
+    "*://*.api.powerautomate.com/*",
+    "*://*.api.powerapps.com/*"
   ],
   "content_scripts": [
     {

@@ -9,6 +9,7 @@ import { Icon, MessageBar, MessageBarType, Pivot, PivotItem } from '@fluentui/re
 import ActionsList from './components/ActionsList';
 import Settings from './components/Settings';
 import PredefinedActionsList from './components/PredefinedActionsList';
+import { FlowEditorActions } from './services/interfaces/IFlowEditorActions';
 
 function App(initialState?: IInitialState | undefined) {
   const storageService = useMemo(() => { return new StorageService(); }, []);
@@ -34,6 +35,7 @@ function App(initialState?: IInitialState | undefined) {
   const [recordingTimeLeft, setRecordingTimeLeft] = useState<number | null>(null);
   const recordingTimerRef = useRef<NodeJS.Timeout | null>(null);
   const countdownTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const [isFlowPage, setIsFlowPage] = useState<boolean>(false);
 
   const listenToMessage = (message: ICommunicationChromeMessage, sender: chrome.runtime.MessageSender, sendResponse: (response?: any) => void) => {
     if (message.to !== AppElement.ReactApp) { return console.log('Incorrect message destination'); }
@@ -216,6 +218,17 @@ function App(initialState?: IInitialState | undefined) {
     }
   }, [settings, predefinedActionsService]);
 
+  const checkFlowPage = useCallback(() => {
+    chrome.runtime.sendMessage({ type: 'check-flow-page' } as FlowEditorActions, (response) => {
+      if (chrome.runtime.lastError) {
+        console.error('Failed to check flow page:', chrome.runtime.lastError);
+        setIsFlowPage(false);
+        return;
+      }
+      setIsFlowPage(response?.isFlowPage || false);
+    });
+  }, []);
+
   const initData = useCallback(async () => {
     const settings = await storageService.getSettings();
     setSettings(settings);
@@ -223,6 +236,7 @@ function App(initialState?: IInitialState | undefined) {
     getRecordingPageSetting(settings.isRecordingPage ?? null);
     getClassicPASetting(settings.isClassicPowerAutomatePage ?? null);
     getNewPASetting(settings.isModernPowerAutomatePage ?? null);
+    checkFlowPage();
 
     communicationService.sendRequest({ actionType: ActionType.CheckIfPageHasActionsToCopy, message: "Check If Page has actions to copy" }, AppElement.ReactApp, AppElement.Content, (response) => {
       setHasActionsOnPageToCopy(response)
@@ -273,7 +287,7 @@ function App(initialState?: IInitialState | undefined) {
     });
 
     chrome.runtime.onMessage.addListener(listenToMessage);
-  }, [communicationService, storageService, getRecordingPageSetting, getClassicPASetting, getNewPASetting, startRecordingTimer, stopRecordingTimer, loadPredefinedActions]);
+  }, [communicationService, storageService, getRecordingPageSetting, getClassicPASetting, getNewPASetting, startRecordingTimer, stopRecordingTimer, loadPredefinedActions, checkFlowPage]);
 
   useEffect(() => {
     initData();
@@ -578,6 +592,32 @@ function App(initialState?: IInitialState | undefined) {
     ></Icon>;
   }, [showSettings])
 
+  const openFlowEditor = useCallback(() => {
+    chrome.runtime.sendMessage({ type: 'open-flow-editor' } as FlowEditorActions, (response) => {
+      if (chrome.runtime.lastError) {
+        console.error('Failed to open flow editor:', chrome.runtime.lastError);
+        setNotificationMessage('Failed to open flow editor');
+        setIsSuccessNotification(false);
+        return;
+      }
+      if (!response?.success) {
+        setNotificationMessage(response?.error || 'Failed to open flow editor');
+        setIsSuccessNotification(false);
+      }
+    });
+  }, []);
+
+  const renderFlowEditorButton = useCallback(() => {
+    return isFlowPage && <Icon
+      className="App-icon"
+      iconName='Edit'
+      title="Edit Flow JSON"
+      onClick={openFlowEditor}
+      onMouseEnter={() => { setHoverMessage("Open Flow JSON Editor") }}
+      onMouseLeave={() => { setHoverMessage(null) }}
+    ></Icon>;
+  }, [isFlowPage, openFlowEditor])
+
   return (
     <div className="App">
       <header className="App-header">
@@ -587,6 +627,7 @@ function App(initialState?: IInitialState | undefined) {
         {renderGetClipboardActions()}
         {renderCopyAllActionsFromPage()}
         {renderInsertToClipboardV3Button()}
+        {renderFlowEditorButton()}
         <div style={{ marginLeft: 'auto' }}>
           {renderSettingsButton()}
         </div>

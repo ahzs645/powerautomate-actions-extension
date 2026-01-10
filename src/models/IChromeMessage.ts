@@ -17,9 +17,17 @@ export enum ActionType {
     DeleteMyClipboardAction,
     CheckIfPageHasActionsToCopy,
     CopyAllActionsFromPage,
-    
+
     CheckIsNewPowerAutomateEditorV3,
     SetSelectedActionsIntoClipboardV3,
+
+    // Flow Editor Actions
+    OpenFlowEditor,
+    FlowEditorAppLoaded,
+    FlowEditorTokenChanged,
+    FlowEditorRefresh,
+    CheckFlowPage,
+    FlowPageStatus,
 }
 
 export interface IDataChromeMessage {
