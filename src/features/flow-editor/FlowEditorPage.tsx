@@ -9,6 +9,7 @@ import { useMemo, useState } from 'react';
 import { LoaderModal } from '../../components/shared/LoaderModal';
 import { Messages } from '../../components/shared/Messages';
 import { FlowValidationResult } from './FlowValidationResult';
+import { FlowAnalysisPanel } from './FlowAnalysisPanel';
 import { useFlowEditor } from './useFlowEditor';
 
 const editorContainerClassName = mergeStyles({
@@ -19,6 +20,8 @@ export const FlowEditorPage: React.FC = () => {
   const [editor, setEditor] = useState<monaco.editor.IStandaloneCodeEditor>(
     null as any
   );
+  const [analysisPanelOpen, setAnalysisPanelOpen] = useState(false);
+
   const {
     name,
     environment,
@@ -69,6 +72,15 @@ export const FlowEditorPage: React.FC = () => {
           onClick: () => validate(editor.getValue()),
         },
         {
+          key: 'analyze',
+          text: 'Analyze',
+          iconProps: {
+            iconName: 'BarChart4',
+          },
+          disabled: !editor || !definition,
+          onClick: () => setAnalysisPanelOpen(true),
+        },
+        {
           key: 'refresh',
           text: 'Refresh Token',
           iconProps: {
@@ -77,7 +89,7 @@ export const FlowEditorPage: React.FC = () => {
           onClick: refreshToken,
         },
       ] as ICommandBarItemProps[],
-    [name, editor, definition, saveDefinition, validate, environment]
+    [name, editor, definition, saveDefinition, validate, environment, setAnalysisPanelOpen]
   );
 
   return (
@@ -89,6 +101,12 @@ export const FlowEditorPage: React.FC = () => {
         warnings={validationResult.warnings}
         isOpen={validationPaneIsOpen}
         onClose={() => setValidationPaneIsOpen(false)}
+      />
+      <FlowAnalysisPanel
+        isOpen={analysisPanelOpen}
+        onDismiss={() => setAnalysisPanelOpen(false)}
+        flowDefinition={editor?.getValue() || definition}
+        flowName={name}
       />
       <CommandBar items={commandBarItems} />
       {!!definition && (

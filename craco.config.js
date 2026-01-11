@@ -6,6 +6,13 @@ module.exports = {
         configure: (webpackConfig, { env, paths }) => {
             return {
                 ...webpackConfig,
+                resolve: {
+                    ...webpackConfig.resolve,
+                    fallback: {
+                        ...webpackConfig.resolve?.fallback,
+                        path: require.resolve('path-browserify'),
+                    },
+                },
                 entry: {
                     main: [env === 'development' &&
                         require.resolve('react-dev-utils/webpackHotDevClient'), paths.appIndexJs].filter(Boolean),
