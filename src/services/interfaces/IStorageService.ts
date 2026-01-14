@@ -1,4 +1,5 @@
 import { IActionModel, ISettingsModel } from "../../models";
+import { IAnalysisConfig } from "../../config/AnalysisConfig";
 
 export interface IStorageService {
     getRecordedActions(): Promise<IActionModel[]>;
@@ -32,4 +33,9 @@ export interface IStorageService {
     getSettings(): Promise<ISettingsModel>;
     updateSettings(partialSettings: Partial<ISettingsModel>): Promise<ISettingsModel>;
     resetSettings(): Promise<ISettingsModel>;
+
+    // Analysis configuration
+    getAnalysisConfig(): Promise<IAnalysisConfig>;
+    updateAnalysisConfig(config: Partial<IAnalysisConfig>): Promise<IAnalysisConfig>;
+    resetAnalysisConfig(): Promise<IAnalysisConfig>;
 }

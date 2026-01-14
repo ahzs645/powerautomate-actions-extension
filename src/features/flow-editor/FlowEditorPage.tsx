@@ -10,6 +10,8 @@ import { LoaderModal } from '../../components/shared/LoaderModal';
 import { Messages } from '../../components/shared/Messages';
 import { FlowValidationResult } from './FlowValidationResult';
 import { FlowAnalysisPanel } from './FlowAnalysisPanel';
+import { FlowComparisonPanel } from './FlowComparisonPanel';
+import { SolutionAnalysisPanel } from './SolutionAnalysisPanel';
 import { useFlowEditor } from './useFlowEditor';
 
 const editorContainerClassName = mergeStyles({
@@ -21,6 +23,8 @@ export const FlowEditorPage: React.FC = () => {
     null as any
   );
   const [analysisPanelOpen, setAnalysisPanelOpen] = useState(false);
+  const [comparisonPanelOpen, setComparisonPanelOpen] = useState(false);
+  const [solutionPanelOpen, setSolutionPanelOpen] = useState(false);
 
   const {
     name,
@@ -81,6 +85,23 @@ export const FlowEditorPage: React.FC = () => {
           onClick: () => setAnalysisPanelOpen(true),
         },
         {
+          key: 'compare',
+          text: 'Compare',
+          iconProps: {
+            iconName: 'BranchCompare',
+          },
+          disabled: !editor || !definition,
+          onClick: () => setComparisonPanelOpen(true),
+        },
+        {
+          key: 'solution',
+          text: 'Solution',
+          iconProps: {
+            iconName: 'Package',
+          },
+          onClick: () => setSolutionPanelOpen(true),
+        },
+        {
           key: 'refresh',
           text: 'Refresh Token',
           iconProps: {
@@ -89,7 +110,7 @@ export const FlowEditorPage: React.FC = () => {
           onClick: refreshToken,
         },
       ] as ICommandBarItemProps[],
-    [name, editor, definition, saveDefinition, validate, environment, setAnalysisPanelOpen]
+    [name, editor, definition, saveDefinition, validate, environment]
   );
 
   return (
@@ -101,12 +122,23 @@ export const FlowEditorPage: React.FC = () => {
         warnings={validationResult.warnings}
         isOpen={validationPaneIsOpen}
         onClose={() => setValidationPaneIsOpen(false)}
+        flowDefinition={editor?.getValue() || definition}
       />
       <FlowAnalysisPanel
         isOpen={analysisPanelOpen}
         onDismiss={() => setAnalysisPanelOpen(false)}
         flowDefinition={editor?.getValue() || definition}
         flowName={name}
+      />
+      <FlowComparisonPanel
+        isOpen={comparisonPanelOpen}
+        onDismiss={() => setComparisonPanelOpen(false)}
+        currentFlowDefinition={editor?.getValue() || definition}
+        flowName={name}
+      />
+      <SolutionAnalysisPanel
+        isOpen={solutionPanelOpen}
+        onDismiss={() => setSolutionPanelOpen(false)}
       />
       <CommandBar items={commandBarItems} />
       {!!definition && (

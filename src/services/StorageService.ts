@@ -1,5 +1,6 @@
 import { IActionModel, ISettingsModel, defaultSettings } from "../models";
 import { IStorageService } from "./interfaces";
+import { IAnalysisConfig, defaultAnalysisConfig } from "../config/AnalysisConfig";
 
 export class StorageService implements IStorageService {
     private RECORDED_ACTIONS_KEY = "recordedActions";
@@ -9,6 +10,7 @@ export class StorageService implements IStorageService {
     private COPIED_ACTIONS_V3_KEY = "copiedActionsV3";
     private FAVORITE_ACTIONS_KEY = "favoriteActions";
     private SETTINGS_KEY = "appSettings";
+    private ANALYSIS_CONFIG_KEY = "analysisConfig";
 
     public async getRecordedActions(): Promise<IActionModel[]> {
         return await this.getActionsByKey(this.RECORDED_ACTIONS_KEY);
@@ -185,6 +187,65 @@ export class StorageService implements IStorageService {
     public async getRecordingStartTime(): Promise<number | null> {
         const settings = await this.getSettings();
         return settings.recordingStartTime || null;
+    }
+
+    // Analysis Configuration Methods
+    public async getAnalysisConfig(): Promise<IAnalysisConfig> {
+        return new Promise((resolve, reject) => {
+            try {
+                chrome.storage.local.get(this.ANALYSIS_CONFIG_KEY, (result) => {
+                    const config = result[this.ANALYSIS_CONFIG_KEY] as IAnalysisConfig;
+
+                    if (!config) {
+                        resolve(defaultAnalysisConfig);
+                    } else {
+                        // Deep merge with defaults to ensure all properties exist
+                        const mergedConfig: IAnalysisConfig = {
+                            ratingThresholds: { ...defaultAnalysisConfig.ratingThresholds, ...config.ratingThresholds },
+                            namingConfig: {
+                                ...defaultAnalysisConfig.namingConfig,
+                                ...config.namingConfig,
+                                conventions: config.namingConfig?.conventions || defaultAnalysisConfig.namingConfig.conventions
+                            },
+                            scoringConfig: {
+                                ...defaultAnalysisConfig.scoringConfig,
+                                ...config.scoringConfig,
+                                rules: config.scoringConfig?.rules || defaultAnalysisConfig.scoringConfig.rules
+                            },
+                            complexityRules: config.complexityRules || defaultAnalysisConfig.complexityRules
+                        };
+                        resolve(mergedConfig);
+                    }
+                });
+            } catch (error) {
+                reject(error);
+            }
+        });
+    }
+
+    public async updateAnalysisConfig(partialConfig: Partial<IAnalysisConfig>): Promise<IAnalysisConfig> {
+        const currentConfig = await this.getAnalysisConfig();
+
+        const updatedConfig: IAnalysisConfig = {
+            ratingThresholds: partialConfig.ratingThresholds
+                ? { ...currentConfig.ratingThresholds, ...partialConfig.ratingThresholds }
+                : currentConfig.ratingThresholds,
+            namingConfig: partialConfig.namingConfig
+                ? { ...currentConfig.namingConfig, ...partialConfig.namingConfig }
+                : currentConfig.namingConfig,
+            scoringConfig: partialConfig.scoringConfig
+                ? { ...currentConfig.scoringConfig, ...partialConfig.scoringConfig }
+                : currentConfig.scoringConfig,
+            complexityRules: partialConfig.complexityRules || currentConfig.complexityRules
+        };
+
+        await chrome.storage.local.set({ [this.ANALYSIS_CONFIG_KEY]: updatedConfig });
+        return updatedConfig;
+    }
+
+    public async resetAnalysisConfig(): Promise<IAnalysisConfig> {
+        await chrome.storage.local.set({ [this.ANALYSIS_CONFIG_KEY]: defaultAnalysisConfig });
+        return defaultAnalysisConfig;
     }
 
     private async getActionsByKey(key: string): Promise<IActionModel[]> {

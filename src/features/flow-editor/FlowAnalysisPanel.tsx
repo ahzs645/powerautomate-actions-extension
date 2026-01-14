@@ -9,6 +9,11 @@ import { DefaultButton } from '@fluentui/react/lib/Button';
 import { ProgressIndicator } from '@fluentui/react/lib/ProgressIndicator';
 import { mergeStyles } from '@fluentui/react/lib/Styling';
 import { FlowAnalyzer, FlowAnalysisResult, FlowVariable } from '../../services/FlowAnalyzer';
+import { ExceptionAnalyzer, ExceptionAnalysisResult } from '../../services/ExceptionAnalyzer';
+import { ReportGenerator } from '../../services/ReportGenerator';
+import { ExceptionAnalysisTab } from './ExceptionAnalysisTab';
+import { ApiActionsTab } from './ApiActionsTab';
+import { InputAnalysisTab } from './InputAnalysisTab';
 
 interface FlowAnalysisPanelProps {
   isOpen: boolean;
@@ -72,6 +77,19 @@ export const FlowAnalysisPanel: React.FC<FlowAnalysisPanelProps> = ({
       return null;
     }
   }, [flowDefinition, flowName, isOpen]);
+
+  // Exception analysis
+  const exceptionResult = useMemo<ExceptionAnalysisResult | null>(() => {
+    if (!analysisResult) return null;
+
+    try {
+      const exceptionAnalyzer = new ExceptionAnalyzer();
+      return exceptionAnalyzer.analyze(analysisResult);
+    } catch (error) {
+      console.error('Exception analysis error:', error);
+      return null;
+    }
+  }, [analysisResult]);
 
   // Render diagram when tab is selected using pure SVG (no external dependencies)
   useEffect(() => {
@@ -484,6 +502,17 @@ export const FlowAnalysisPanel: React.FC<FlowAnalysisPanelProps> = ({
     }
   };
 
+  const exportHtmlReport = () => {
+    if (!analysisResult) return;
+
+    const reportGenerator = new ReportGenerator();
+    reportGenerator.downloadReport(
+      analysisResult,
+      exceptionResult || undefined,
+      `${flowName}-report.html`
+    );
+  };
+
   const renderOverview = () => {
     if (!analysisResult) return null;
 
@@ -681,6 +710,12 @@ export const FlowAnalysisPanel: React.FC<FlowAnalysisPanelProps> = ({
       closeButtonAriaLabel="Close"
       onRenderFooterContent={() => (
         <Stack horizontal tokens={{ childrenGap: 12 }}>
+          <DefaultButton
+            iconProps={{ iconName: 'FileHTML' }}
+            text="Export HTML Report"
+            onClick={exportHtmlReport}
+            disabled={!analysisResult}
+          />
           <DefaultButton text="Close" onClick={onDismiss} />
         </Stack>
       )}
@@ -697,17 +732,36 @@ export const FlowAnalysisPanel: React.FC<FlowAnalysisPanelProps> = ({
                 setSelectedTab(item?.props.itemKey || 'overview');
                 setSearchText('');
               }}
+              styles={{ root: { marginBottom: 8 } }}
             >
               <PivotItem headerText="Overview" itemKey="overview" />
               <PivotItem headerText="Diagram" itemKey="diagram" />
+              <PivotItem headerText="Exceptions" itemKey="exceptions" />
               <PivotItem headerText={`Actions (${analysisResult.actionCount})`} itemKey="actions" />
+              <PivotItem headerText="API Actions" itemKey="apiActions" />
+              <PivotItem headerText="Inputs" itemKey="inputs" />
               <PivotItem headerText={`Variables (${analysisResult.variableCount})`} itemKey="variables" />
               <PivotItem headerText={`Connections (${analysisResult.connections.length})`} itemKey="connections" />
             </Pivot>
 
             {selectedTab === 'overview' && renderOverview()}
             {selectedTab === 'diagram' && renderDiagram()}
+            {selectedTab === 'exceptions' && exceptionResult && (
+              <ExceptionAnalysisTab exceptionResult={exceptionResult} />
+            )}
             {selectedTab === 'actions' && renderActions()}
+            {selectedTab === 'apiActions' && (
+              <ApiActionsTab
+                actions={analysisResult.actions}
+                onExportCsv={(data, filename) => exportToCsv(data, `${flowName}-${filename}`)}
+              />
+            )}
+            {selectedTab === 'inputs' && (
+              <InputAnalysisTab
+                actions={analysisResult.actions}
+                onExportCsv={(data, filename) => exportToCsv(data, `${flowName}-${filename}`)}
+              />
+            )}
             {selectedTab === 'variables' && renderVariables()}
             {selectedTab === 'connections' && renderConnections()}
           </>

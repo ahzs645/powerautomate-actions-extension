@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useState, useRef } from 'react';
-import { Stack, Text, Separator, Toggle, TooltipHost, TextField, ChoiceGroup, IChoiceGroupOption, PrimaryButton, DefaultButton, MessageBar, MessageBarType } from '@fluentui/react';
+import { Stack, Text, Separator, Toggle, TooltipHost, TextField, ChoiceGroup, IChoiceGroupOption, PrimaryButton, DefaultButton, MessageBar, MessageBarType, SpinButton, Label } from '@fluentui/react';
 import { IStorageService } from '../services/interfaces';
 import { ISettingsModel, defaultSettings, IActionModel } from '../models';
+import { IAnalysisConfig, IRatingThresholds, INamingConfig, defaultAnalysisConfig } from '../config/AnalysisConfig';
 
 interface SettingsProps {
   storageService: IStorageService;
@@ -11,12 +12,16 @@ interface SettingsProps {
 
 const Settings: React.FC<SettingsProps> = ({ storageService, onSettingsChange, onFavoritesImported }) => {
   const [settings, setSettings] = useState<ISettingsModel>(defaultSettings);
+  const [analysisConfig, setAnalysisConfig] = useState<IAnalysisConfig>(defaultAnalysisConfig);
   const [message, setMessage] = useState<{ text: string; type: MessageBarType } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     storageService.getSettings().then((loadedSettings) => {
       setSettings(loadedSettings);
+    });
+    storageService.getAnalysisConfig().then((loadedConfig) => {
+      setAnalysisConfig(loadedConfig);
     });
   }, [storageService]);
 
@@ -131,7 +136,7 @@ const Settings: React.FC<SettingsProps> = ({ storageService, onSettingsChange, o
       }
 
       // Validate that each item has the required IActionModel properties
-      const isValid = importedActions.every(action => 
+      const isValid = importedActions.every(action =>
         action.id && action.title && action.actionJson
       );
 
@@ -142,7 +147,7 @@ const Settings: React.FC<SettingsProps> = ({ storageService, onSettingsChange, o
 
       await storageService.setFavoriteActions(importedActions);
       setMessage({ text: `Successfully imported ${importedActions.length} favorite action(s)`, type: MessageBarType.success });
-      
+
       // Trigger favorites list refresh
       if (onFavoritesImported) {
         onFavoritesImported();
@@ -157,6 +162,43 @@ const Settings: React.FC<SettingsProps> = ({ storageService, onSettingsChange, o
       }
     }
   }, [storageService, onFavoritesImported]);
+
+  // Analysis Configuration Handlers
+  const handleThresholdChange = useCallback(async (field: keyof IRatingThresholds, value: string | undefined) => {
+    const numValue = value ? parseInt(value, 10) : 0;
+    if (isNaN(numValue)) return;
+
+    const newThresholds = {
+      ...analysisConfig.ratingThresholds,
+      [field]: numValue
+    };
+
+    const updatedConfig = await storageService.updateAnalysisConfig({
+      ratingThresholds: newThresholds
+    });
+    setAnalysisConfig(updatedConfig);
+    setMessage({ text: 'Analysis threshold updated', type: MessageBarType.success });
+  }, [analysisConfig, storageService]);
+
+  const handleNamingPrefixChange = useCallback(async (type: string, newPrefix: string) => {
+    const newConventions = analysisConfig.namingConfig.conventions.map(conv =>
+      conv.type === type ? { ...conv, prefix: newPrefix } : conv
+    );
+
+    const updatedConfig = await storageService.updateAnalysisConfig({
+      namingConfig: {
+        ...analysisConfig.namingConfig,
+        conventions: newConventions
+      }
+    });
+    setAnalysisConfig(updatedConfig);
+  }, [analysisConfig, storageService]);
+
+  const handleResetAnalysisConfig = useCallback(async () => {
+    const resetConfig = await storageService.resetAnalysisConfig();
+    setAnalysisConfig(resetConfig);
+    setMessage({ text: 'Analysis configuration reset to defaults', type: MessageBarType.success });
+  }, [storageService]);
 
   return (
     <Stack tokens={{ childrenGap: 24 }}>
@@ -344,6 +386,136 @@ const Settings: React.FC<SettingsProps> = ({ storageService, onSettingsChange, o
           <Text variant="small" styles={{ root: { color: '#605e5c', fontStyle: 'italic' } }}>
             Tip: Use GitHub Gist for easy editing. Actions are cached for 1 hour.
           </Text>
+        </Stack>
+      </Stack>
+
+      <Separator />
+
+      {/* Analysis Configuration Section */}
+      <Stack tokens={{ childrenGap: 12 }}>
+        <Text variant="medium" styles={{ root: { fontWeight: 600 } }}>
+          Flow Analysis Configuration
+        </Text>
+        <Text variant="small" styles={{ root: { color: '#605e5c' } }}>
+          Customize thresholds and scoring rules for flow quality analysis
+        </Text>
+
+        {/* Rating Thresholds */}
+        <Stack tokens={{ childrenGap: 8 }} styles={{ root: { marginTop: 12 } }}>
+          <Text variant="small" styles={{ root: { fontWeight: 600 } }}>
+            Rating Thresholds
+          </Text>
+          <Text variant="small" styles={{ root: { color: '#605e5c' } }}>
+            Set amber (warning) and red (critical) thresholds for each metric
+          </Text>
+
+          <Stack horizontal tokens={{ childrenGap: 16 }} wrap>
+            <Stack tokens={{ childrenGap: 4 }} styles={{ root: { minWidth: 120 } }}>
+              <Label>Complexity Amber</Label>
+              <SpinButton
+                value={String(analysisConfig.ratingThresholds.complexityAmber)}
+                min={0}
+                max={500}
+                step={5}
+                onChange={(e, val) => handleThresholdChange('complexityAmber', val)}
+                styles={{ root: { width: 100 } }}
+              />
+            </Stack>
+            <Stack tokens={{ childrenGap: 4 }} styles={{ root: { minWidth: 120 } }}>
+              <Label>Complexity Red</Label>
+              <SpinButton
+                value={String(analysisConfig.ratingThresholds.complexityRed)}
+                min={0}
+                max={500}
+                step={5}
+                onChange={(e, val) => handleThresholdChange('complexityRed', val)}
+                styles={{ root: { width: 100 } }}
+              />
+            </Stack>
+          </Stack>
+
+          <Stack horizontal tokens={{ childrenGap: 16 }} wrap>
+            <Stack tokens={{ childrenGap: 4 }} styles={{ root: { minWidth: 120 } }}>
+              <Label>Actions Amber</Label>
+              <SpinButton
+                value={String(analysisConfig.ratingThresholds.actionsAmber)}
+                min={0}
+                max={200}
+                step={5}
+                onChange={(e, val) => handleThresholdChange('actionsAmber', val)}
+                styles={{ root: { width: 100 } }}
+              />
+            </Stack>
+            <Stack tokens={{ childrenGap: 4 }} styles={{ root: { minWidth: 120 } }}>
+              <Label>Actions Red</Label>
+              <SpinButton
+                value={String(analysisConfig.ratingThresholds.actionsRed)}
+                min={0}
+                max={200}
+                step={5}
+                onChange={(e, val) => handleThresholdChange('actionsRed', val)}
+                styles={{ root: { width: 100 } }}
+              />
+            </Stack>
+          </Stack>
+
+          <Stack horizontal tokens={{ childrenGap: 16 }} wrap>
+            <Stack tokens={{ childrenGap: 4 }} styles={{ root: { minWidth: 120 } }}>
+              <Label>Variables Amber</Label>
+              <SpinButton
+                value={String(analysisConfig.ratingThresholds.variablesAmber)}
+                min={0}
+                max={50}
+                step={1}
+                onChange={(e, val) => handleThresholdChange('variablesAmber', val)}
+                styles={{ root: { width: 100 } }}
+              />
+            </Stack>
+            <Stack tokens={{ childrenGap: 4 }} styles={{ root: { minWidth: 120 } }}>
+              <Label>Variables Red</Label>
+              <SpinButton
+                value={String(analysisConfig.ratingThresholds.variablesRed)}
+                min={0}
+                max={50}
+                step={1}
+                onChange={(e, val) => handleThresholdChange('variablesRed', val)}
+                styles={{ root: { width: 100 } }}
+              />
+            </Stack>
+          </Stack>
+        </Stack>
+
+        {/* Naming Conventions */}
+        <Stack tokens={{ childrenGap: 8 }} styles={{ root: { marginTop: 12 } }}>
+          <Text variant="small" styles={{ root: { fontWeight: 600 } }}>
+            Variable Naming Conventions
+          </Text>
+          <Text variant="small" styles={{ root: { color: '#605e5c' } }}>
+            Set the prefix character for each variable type (e.g., b for boolean, s for string)
+          </Text>
+
+          <Stack horizontal tokens={{ childrenGap: 12 }} wrap>
+            {analysisConfig.namingConfig.conventions.map((conv) => (
+              <Stack key={conv.type} tokens={{ childrenGap: 4 }} styles={{ root: { minWidth: 80 } }}>
+                <Label>{conv.type}</Label>
+                <TextField
+                  value={conv.prefix}
+                  maxLength={2}
+                  onChange={(e, val) => handleNamingPrefixChange(conv.type, val || '')}
+                  styles={{ root: { width: 50 } }}
+                />
+              </Stack>
+            ))}
+          </Stack>
+        </Stack>
+
+        {/* Reset Button */}
+        <Stack horizontal tokens={{ childrenGap: 12 }} styles={{ root: { marginTop: 16 } }}>
+          <DefaultButton
+            text="Reset to Defaults"
+            onClick={handleResetAnalysisConfig}
+            iconProps={{ iconName: 'Refresh' }}
+          />
         </Stack>
       </Stack>
     </Stack>

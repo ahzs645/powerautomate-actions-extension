@@ -1,6 +1,19 @@
 // FlowAnalyzer - Ported from AutoReview-PWA
 // Analyzes Power Automate flow definitions for complexity, quality scoring, and generates reports
 
+import {
+  IAnalysisConfig,
+  IRatingThresholds,
+  INamingConfig,
+  IScoringConfig,
+  IComplexityRule,
+  defaultAnalysisConfig,
+  getNamingConventionMap,
+  getComplexityMap,
+  getScoringRuleValue,
+} from '../config/AnalysisConfig';
+import { getConnectorService } from './ConnectorService';
+
 export interface FlowAction {
   Name: string;
   Type: string;
@@ -52,6 +65,16 @@ export interface FlowTrigger {
   connector: string;
   recurrence?: string;
   inputs?: any;
+  // Enhanced trigger details
+  kind?: string;
+  description?: string;
+  conditions?: string;
+  splitOn?: string;
+  operationId?: string;
+  parameters?: string;
+  schema?: string;
+  method?: string;
+  relativePath?: string;
 }
 
 export interface FlowAnalysisResult {
@@ -76,106 +99,8 @@ export interface FlowAnalysisResult {
   composesCount: number;
 }
 
-// Complexity ratings for different action types
-const complexityTemplate: Record<string, number> = {
-  'GetItemsshared_sharepointonline': 1,
-  'CopyFileAsyncshared_sharepointonline': 1,
-  'GetFileContentshared_sharepointonline': 1,
-  'HttpRequestshared_sharepointonline': 5,
-  'DeleteFileshared_sharepointonline': 1,
-  'ConvertFileshared_onedriveforbusiness': 2,
-  'GetItemsshared_excelonlinebusiness': 1,
-  'RunScriptProdshared_excelonlinebusiness': 5,
-  'StartAndWaitForAnApprovalshared_approvals': 2,
-  'ApiConnection': 2,
-  'ApiConnectionWebhook': 2,
-  'ApiManagement': 2,
-  'AppendToArrayVariable': 2,
-  'AppendToStringVariable': 2,
-  'Batch': 5,
-  'Compose': 2,
-  'DecrementVariable': 2,
-  'Expression': 2,
-  'FlatFileDecoding': 5,
-  'FlatFileEncoding': 5,
-  'Foreach': 4,
-  'Function': 5,
-  'Http': 5,
-  'HttpWebhook': 5,
-  'If': 3,
-  'IncrementVariable': 2,
-  'InitializeVariable': 1,
-  'IntegrationAccountArtifactLookup': 5,
-  'Join': 3,
-  'Liquid': 5,
-  'ParseJson': 3,
-  'Query': 3,
-  'Recurrence': 5,
-  'Request': 1,
-  'Response': 1,
-  'Scope': -1,
-  'Select': 3,
-  'SendToBatch': 5,
-  'SetVariable': 2,
-  'SlidingWindow': 5,
-  'Switch': 4,
-  'Table': 2,
-  'Terminate': -1,
-  'Until': 4,
-  'Wait': 1,
-  'Workflow': 5,
-  'XmlValidation': 3,
-  'Xslt': 3,
-  'OpenApiConnection': 1,
-  'OpenApiConnectionWebhook': 2,
-  'Do_until': 4,
-};
-
-// Rating thresholds
-const ratingThresholds = {
-  complexityAmber: 50,
-  complexityRed: 100,
-  actionsAmber: 30,
-  actionsRed: 50,
-  variablesAmber: 3,
-  variablesRed: 5,
-  exceptionsAmber: 1,
-  exceptionsRed: 0,
-};
-
-// Scoring configuration
-const scoringConfig = {
-  exceptionScope: 10,
-  mainScope: 10,
-  varNaming: 10,
-  varUsed: 5,
-  varConstant: 5,
-  variables: 10,
-  variablesMin: 0,
-  variablesDeduction: 1,
-  composes: 10,
-  composesMin: 0,
-  composesDeduction: 5,
-  connections: 10,
-  connectionsMin: 3,
-  connectionsDeduction: 2,
-  complexityRed: 0,
-  complexityAmber: 15,
-  complexityGreen: 20,
-  actionsRed: 0,
-  actionsAmber: 5,
-  actionsGreen: 10,
-};
-
-// Variable naming conventions
-const namingConventions: Record<string, string> = {
-  boolean: 'b',
-  string: 's',
-  integer: 'i',
-  float: 'f',
-  object: 'o',
-  array: 'a',
-};
+// Note: Complexity ratings, thresholds, scoring config, and naming conventions
+// are now loaded from IAnalysisConfig passed to the FlowAnalyzer constructor
 
 export class FlowAnalyzer {
   private definition: any;
@@ -185,6 +110,28 @@ export class FlowAnalyzer {
   private errors: string[] = [];
   private warnings: string[] = [];
 
+  // Configuration
+  private config: IAnalysisConfig;
+  private complexityMap: Record<string, number>;
+  private namingConventionMap: Record<string, string>;
+
+  constructor(config?: IAnalysisConfig) {
+    this.config = config || defaultAnalysisConfig;
+    this.complexityMap = getComplexityMap(this.config.complexityRules);
+    this.namingConventionMap = getNamingConventionMap(this.config.namingConfig);
+  }
+
+  // Getter for configuration (useful for UI components)
+  getConfig(): IAnalysisConfig {
+    return this.config;
+  }
+
+  // Update configuration
+  setConfig(config: IAnalysisConfig): void {
+    this.config = config;
+    this.complexityMap = getComplexityMap(this.config.complexityRules);
+    this.namingConventionMap = getNamingConventionMap(this.config.namingConfig);
+  }
 
   analyze(flowDefinition: any, flowName?: string, flowId?: string): FlowAnalysisResult {
     this.reset();
@@ -303,12 +250,51 @@ export class FlowAnalyzer {
     const triggerName = triggerNames[0];
     const trigger = triggers[triggerName];
 
+    // Extract connector info
+    let connector = 'Unknown';
+    if (trigger.inputs?.host?.apiId) {
+      const apiId = trigger.inputs.host.apiId;
+      const match = apiId.match(/Microsoft\.PowerApps\/apis\/(.+)/);
+      connector = match ? match[1] : apiId;
+    } else if (trigger.inputs?.host?.connectionName) {
+      connector = trigger.inputs.host.connectionName;
+    }
+
+    // Extract conditions
+    let conditions: string | undefined;
+    if (trigger.conditions && Array.isArray(trigger.conditions)) {
+      conditions = trigger.conditions
+        .map((c: any) => c.expression || JSON.stringify(c))
+        .join(', ');
+    }
+
+    // Extract schema for Request triggers
+    let schema: string | undefined;
+    if (trigger.inputs?.schema) {
+      schema = JSON.stringify(trigger.inputs.schema, null, 2);
+    }
+
+    // Extract operation details for API triggers
+    const operationId = trigger.inputs?.host?.operationId;
+    const parameters = trigger.inputs?.parameters
+      ? JSON.stringify(trigger.inputs.parameters, null, 2)
+      : undefined;
+
     return {
       name: triggerName,
       type: trigger.type || 'Unknown',
-      connector: trigger.inputs?.host?.apiId || trigger.inputs?.host?.connectionName || 'Unknown',
-      recurrence: trigger.recurrence ? JSON.stringify(trigger.recurrence) : undefined,
+      connector,
+      recurrence: trigger.recurrence ? JSON.stringify(trigger.recurrence, null, 2) : undefined,
       inputs: trigger.inputs,
+      kind: trigger.kind,
+      description: trigger.description,
+      conditions,
+      splitOn: trigger.splitOn,
+      operationId,
+      parameters,
+      schema,
+      method: trigger.inputs?.method,
+      relativePath: trigger.inputs?.relativePath,
     };
   }
 
@@ -322,7 +308,7 @@ export class FlowAnalyzer {
 
       // Get complexity for this action type
       const complexityKey = this.getComplexityKey(actionType, action);
-      const complexity = complexityTemplate[complexityKey] || complexityTemplate[actionType] || 1;
+      const complexity = this.complexityMap[complexityKey] || this.complexityMap[actionType] || 1;
 
       // Extract run after
       const runAfter = action.runAfter
@@ -392,7 +378,7 @@ export class FlowAnalyzer {
 
     // Try specific connector+operation combination first
     const specificKey = `${operationId}${connector}`;
-    if (complexityTemplate[specificKey]) {
+    if (this.complexityMap[specificKey]) {
       return specificKey;
     }
 
@@ -400,8 +386,18 @@ export class FlowAnalyzer {
   }
 
   private getActionTier(action: any): string {
+    // Use ConnectorService for accurate tier detection
+    const connector = this.getConnector(action);
+    const connectorService = getConnectorService();
+    const tier = connectorService.getConnectorTier(connector);
+
+    if (tier !== 'Unknown') {
+      return tier;
+    }
+
+    // Fallback to type-based detection
     const type = action.type || '';
-    if (type.includes('Premium') || type.includes('Http')) {
+    if (type.includes('Http') || type === 'Http' || type === 'HttpWebhook') {
       return 'Premium';
     }
     return 'Standard';
@@ -484,7 +480,7 @@ export class FlowAnalyzer {
         const varValue = JSON.stringify(action.inputs?.variables?.[0]?.value || '');
 
         // Check naming convention
-        const expectedPrefix = namingConventions[varType.toLowerCase()] || '';
+        const expectedPrefix = this.namingConventionMap[varType.toLowerCase()] || '';
         const followsNaming = expectedPrefix ? varName.startsWith(expectedPrefix) : true;
 
         this.variables.push({
@@ -583,55 +579,62 @@ export class FlowAnalyzer {
     variableNamingScore: number,
     composesCount: number
   ): number {
+    const scoring = this.config.scoringConfig;
+    const thresholds = this.config.ratingThresholds;
     let score = 0;
 
+    // Helper to get scoring rule value
+    const getScore = (name: string) => getScoringRuleValue(scoring, name);
+
     // Complexity score
-    if (complexity <= ratingThresholds.complexityAmber) {
-      score += scoringConfig.complexityGreen;
-    } else if (complexity <= ratingThresholds.complexityRed) {
-      score += scoringConfig.complexityAmber;
+    if (complexity <= thresholds.complexityAmber) {
+      score += getScore('complexityGreen');
+    } else if (complexity <= thresholds.complexityRed) {
+      score += getScore('complexityAmber');
     } else {
-      score += scoringConfig.complexityRed;
+      score += getScore('complexityRed');
     }
 
     // Action count score
-    if (actionCount <= ratingThresholds.actionsAmber) {
-      score += scoringConfig.actionsGreen;
-    } else if (actionCount <= ratingThresholds.actionsRed) {
-      score += scoringConfig.actionsAmber;
+    if (actionCount <= thresholds.actionsAmber) {
+      score += getScore('actionsGreen');
+    } else if (actionCount <= thresholds.actionsRed) {
+      score += getScore('actionsAmber');
     } else {
-      score += scoringConfig.actionsRed;
+      score += getScore('actionsRed');
     }
 
     // Main scope bonus
     if (hasMainScope) {
-      score += scoringConfig.mainScope;
+      score += getScore('mainScope');
     }
 
     // Exception scope bonus
     if (hasExceptionScope) {
-      score += scoringConfig.exceptionScope;
+      score += getScore('exceptionScope');
     }
 
     // Variable naming score
-    score += Math.round((variableNamingScore / 100) * scoringConfig.varNaming);
+    score += Math.round((variableNamingScore / 100) * getScore('varNaming'));
 
     // Variable count deduction
-    if (variableCount > scoringConfig.variablesMin) {
-      const deduction = (variableCount - scoringConfig.variablesMin) * scoringConfig.variablesDeduction;
+    const variablesMin = getScore('variablesMin');
+    if (variableCount > variablesMin) {
+      const deduction = (variableCount - variablesMin) * getScore('variablesDeduction');
       score = Math.max(0, score - deduction);
     }
 
     // Compose deduction
-    if (composesCount > scoringConfig.composesMin) {
-      const deduction = (composesCount - scoringConfig.composesMin) * scoringConfig.composesDeduction;
+    const composesMin = getScore('composesMin');
+    if (composesCount > composesMin) {
+      const deduction = (composesCount - composesMin) * getScore('composesDeduction');
       score = Math.max(0, score - deduction);
     }
 
     // Variable usage bonus
     const allUsed = this.variables.every(v => v.used);
     if (allUsed && this.variables.length > 0) {
-      score += scoringConfig.varUsed;
+      score += getScore('varUsed');
     }
 
     return Math.min(100, Math.max(0, score));
@@ -706,22 +709,38 @@ export class FlowAnalyzer {
     return 'red';
   }
 
-  static getComplexityColor(complexity: number): string {
-    return FlowAnalyzer.getRatingColor(complexity, ratingThresholds.complexityAmber, ratingThresholds.complexityRed);
+  static getComplexityColor(complexity: number, thresholds?: IRatingThresholds): string {
+    const t = thresholds || defaultAnalysisConfig.ratingThresholds;
+    return FlowAnalyzer.getRatingColor(complexity, t.complexityAmber, t.complexityRed);
   }
 
-  static getActionCountColor(count: number): string {
-    return FlowAnalyzer.getRatingColor(count, ratingThresholds.actionsAmber, ratingThresholds.actionsRed);
+  static getActionCountColor(count: number, thresholds?: IRatingThresholds): string {
+    const t = thresholds || defaultAnalysisConfig.ratingThresholds;
+    return FlowAnalyzer.getRatingColor(count, t.actionsAmber, t.actionsRed);
   }
 
-  static getVariableCountColor(count: number): string {
-    return FlowAnalyzer.getRatingColor(count, ratingThresholds.variablesAmber, ratingThresholds.variablesRed);
+  static getVariableCountColor(count: number, thresholds?: IRatingThresholds): string {
+    const t = thresholds || defaultAnalysisConfig.ratingThresholds;
+    return FlowAnalyzer.getRatingColor(count, t.variablesAmber, t.variablesRed);
   }
 
   static getOverallRatingColor(rating: number): string {
     if (rating >= 70) return 'green';
     if (rating >= 40) return 'orange';
     return 'red';
+  }
+
+  // Instance methods for color (uses instance config)
+  getComplexityColor(complexity: number): string {
+    return FlowAnalyzer.getComplexityColor(complexity, this.config.ratingThresholds);
+  }
+
+  getActionCountColor(count: number): string {
+    return FlowAnalyzer.getActionCountColor(count, this.config.ratingThresholds);
+  }
+
+  getVariableCountColor(count: number): string {
+    return FlowAnalyzer.getVariableCountColor(count, this.config.ratingThresholds);
   }
 }
 

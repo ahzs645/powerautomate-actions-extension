@@ -1,0 +1,432 @@
+{
+  "connectors": {
+    "shared_sharepointonline": {
+      "name": "SharePoint",
+      "displayName": "SharePoint",
+      "tier": "Standard",
+      "description": "Connect to SharePoint sites to manage lists, libraries, and documents",
+      "icon": "SharepointLogo",
+      "category": "Collaboration"
+    },
+    "shared_office365": {
+      "name": "Office 365 Outlook",
+      "displayName": "Office 365 Outlook",
+      "tier": "Standard",
+      "description": "Send and receive emails, manage calendar and contacts",
+      "icon": "OutlookLogo",
+      "category": "Communication"
+    },
+    "shared_office365users": {
+      "name": "Office 365 Users",
+      "displayName": "Office 365 Users",
+      "tier": "Standard",
+      "description": "Get user profile information and organization details",
+      "icon": "People",
+      "category": "Identity"
+    },
+    "shared_teams": {
+      "name": "Microsoft Teams",
+      "displayName": "Microsoft Teams",
+      "tier": "Standard",
+      "description": "Post messages, manage channels, and interact with Teams",
+      "icon": "TeamsLogo",
+      "category": "Collaboration"
+    },
+    "shared_onedriveforbusiness": {
+      "name": "OneDrive for Business",
+      "displayName": "OneDrive for Business",
+      "tier": "Standard",
+      "description": "Connect to OneDrive for Business to manage files",
+      "icon": "OneDrive",
+      "category": "Storage"
+    },
+    "shared_dynamicscrmonline": {
+      "name": "Microsoft Dataverse",
+      "displayName": "Microsoft Dataverse",
+      "tier": "Standard",
+      "description": "Connect to Dataverse to manage business data",
+      "icon": "Database",
+      "category": "Data"
+    },
+    "shared_commondataserviceforapps": {
+      "name": "Microsoft Dataverse",
+      "displayName": "Microsoft Dataverse",
+      "tier": "Standard",
+      "description": "Connect to Dataverse to manage business data",
+      "icon": "Database",
+      "category": "Data"
+    },
+    "shared_excelonlinebusiness": {
+      "name": "Excel Online (Business)",
+      "displayName": "Excel Online (Business)",
+      "tier": "Standard",
+      "description": "Work with Excel files in OneDrive and SharePoint",
+      "icon": "ExcelLogo",
+      "category": "Productivity"
+    },
+    "shared_approvals": {
+      "name": "Approvals",
+      "displayName": "Approvals",
+      "tier": "Standard",
+      "description": "Create and manage approval workflows",
+      "icon": "Checkbox",
+      "category": "Workflow"
+    },
+    "shared_flowmanagement": {
+      "name": "Power Automate Management",
+      "displayName": "Power Automate Management",
+      "tier": "Standard",
+      "description": "Manage flows and get flow run history",
+      "icon": "Flow",
+      "category": "Management"
+    },
+    "shared_sql": {
+      "name": "SQL Server",
+      "displayName": "SQL Server",
+      "tier": "Premium",
+      "description": "Connect to SQL Server to read and write data",
+      "icon": "Database",
+      "category": "Data"
+    },
+    "shared_azureblob": {
+      "name": "Azure Blob Storage",
+      "displayName": "Azure Blob Storage",
+      "tier": "Standard",
+      "description": "Connect to Azure Blob Storage to manage files",
+      "icon": "AzureLogo",
+      "category": "Storage"
+    },
+    "shared_azuread": {
+      "name": "Azure AD",
+      "displayName": "Azure AD",
+      "tier": "Premium",
+      "description": "Connect to Azure Active Directory",
+      "icon": "AADLogo",
+      "category": "Identity"
+    },
+    "shared_http": {
+      "name": "HTTP",
+      "displayName": "HTTP",
+      "tier": "Premium",
+      "description": "Make HTTP requests to any API",
+      "icon": "Globe",
+      "category": "Web"
+    },
+    "shared_httpwebhook": {
+      "name": "HTTP Webhook",
+      "displayName": "HTTP Webhook",
+      "tier": "Premium",
+      "description": "Subscribe to webhooks from any service",
+      "icon": "Globe",
+      "category": "Web"
+    },
+    "shared_sftp": {
+      "name": "SFTP",
+      "displayName": "SFTP",
+      "tier": "Premium",
+      "description": "Connect to SFTP servers to transfer files",
+      "icon": "Server",
+      "category": "Storage"
+    },
+    "shared_smtp": {
+      "name": "SMTP",
+      "displayName": "SMTP",
+      "tier": "Premium",
+      "description": "Send emails using SMTP",
+      "icon": "Mail",
+      "category": "Communication"
+    },
+    "shared_twitter": {
+      "name": "Twitter",
+      "displayName": "Twitter",
+      "tier": "Standard",
+      "description": "Connect to Twitter to post tweets and read timelines",
+      "icon": "TwitterLogo",
+      "category": "Social"
+    },
+    "shared_slack": {
+      "name": "Slack",
+      "displayName": "Slack",
+      "tier": "Standard",
+      "description": "Connect to Slack to send and receive messages",
+      "icon": "ChatBot",
+      "category": "Communication"
+    },
+    "shared_salesforce": {
+      "name": "Salesforce",
+      "displayName": "Salesforce",
+      "tier": "Premium",
+      "description": "Connect to Salesforce to manage CRM data",
+      "icon": "CRM",
+      "category": "CRM"
+    },
+    "shared_azureautomation": {
+      "name": "Azure Automation",
+      "displayName": "Azure Automation",
+      "tier": "Premium",
+      "description": "Run Azure Automation runbooks",
+      "icon": "AzureLogo",
+      "category": "Automation"
+    },
+    "shared_azureloganalytics": {
+      "name": "Azure Log Analytics",
+      "displayName": "Azure Log Analytics",
+      "tier": "Premium",
+      "description": "Query Azure Log Analytics workspaces",
+      "icon": "AzureLogo",
+      "category": "Monitoring"
+    },
+    "shared_azuremonitorlogs": {
+      "name": "Azure Monitor Logs",
+      "displayName": "Azure Monitor Logs",
+      "tier": "Premium",
+      "description": "Query Azure Monitor Logs",
+      "icon": "AzureLogo",
+      "category": "Monitoring"
+    },
+    "shared_azurequeues": {
+      "name": "Azure Queues",
+      "displayName": "Azure Queues",
+      "tier": "Standard",
+      "description": "Connect to Azure Storage Queues",
+      "icon": "AzureLogo",
+      "category": "Messaging"
+    },
+    "shared_servicebus": {
+      "name": "Service Bus",
+      "displayName": "Service Bus",
+      "tier": "Premium",
+      "description": "Connect to Azure Service Bus",
+      "icon": "AzureLogo",
+      "category": "Messaging"
+    },
+    "shared_eventgrid": {
+      "name": "Event Grid",
+      "displayName": "Event Grid",
+      "tier": "Premium",
+      "description": "Connect to Azure Event Grid",
+      "icon": "AzureLogo",
+      "category": "Events"
+    },
+    "shared_keyvault": {
+      "name": "Azure Key Vault",
+      "displayName": "Azure Key Vault",
+      "tier": "Premium",
+      "description": "Access secrets from Azure Key Vault",
+      "icon": "Lock",
+      "category": "Security"
+    },
+    "shared_planner": {
+      "name": "Planner",
+      "displayName": "Planner",
+      "tier": "Standard",
+      "description": "Create and manage tasks in Microsoft Planner",
+      "icon": "PlannerLogo",
+      "category": "Productivity"
+    },
+    "shared_todo": {
+      "name": "Microsoft To Do",
+      "displayName": "Microsoft To Do",
+      "tier": "Standard",
+      "description": "Manage tasks in Microsoft To Do",
+      "icon": "CheckList",
+      "category": "Productivity"
+    },
+    "shared_forms": {
+      "name": "Microsoft Forms",
+      "displayName": "Microsoft Forms",
+      "tier": "Standard",
+      "description": "Trigger flows when forms are submitted",
+      "icon": "FormLibrary",
+      "category": "Data Collection"
+    },
+    "shared_onenote": {
+      "name": "OneNote (Business)",
+      "displayName": "OneNote (Business)",
+      "tier": "Standard",
+      "description": "Create and read OneNote pages",
+      "icon": "OneNote",
+      "category": "Productivity"
+    },
+    "shared_powerbi": {
+      "name": "Power BI",
+      "displayName": "Power BI",
+      "tier": "Premium",
+      "description": "Refresh datasets and manage Power BI",
+      "icon": "PowerBILogo",
+      "category": "Analytics"
+    },
+    "shared_powerappsformakers": {
+      "name": "Power Apps for Makers",
+      "displayName": "Power Apps for Makers",
+      "tier": "Standard",
+      "description": "Manage Power Apps",
+      "icon": "PowerAppsLogo",
+      "category": "Management"
+    },
+    "shared_dropbox": {
+      "name": "Dropbox",
+      "displayName": "Dropbox",
+      "tier": "Standard",
+      "description": "Connect to Dropbox to manage files",
+      "icon": "CloudDownload",
+      "category": "Storage"
+    },
+    "shared_googledrive": {
+      "name": "Google Drive",
+      "displayName": "Google Drive",
+      "tier": "Standard",
+      "description": "Connect to Google Drive to manage files",
+      "icon": "CloudDownload",
+      "category": "Storage"
+    },
+    "shared_googlesheets": {
+      "name": "Google Sheets",
+      "displayName": "Google Sheets",
+      "tier": "Standard",
+      "description": "Read and write data in Google Sheets",
+      "icon": "Table",
+      "category": "Productivity"
+    },
+    "shared_docusign": {
+      "name": "DocuSign",
+      "displayName": "DocuSign",
+      "tier": "Premium",
+      "description": "Create and manage DocuSign envelopes",
+      "icon": "Signature",
+      "category": "Documents"
+    },
+    "shared_adobesign": {
+      "name": "Adobe Acrobat Sign",
+      "displayName": "Adobe Acrobat Sign",
+      "tier": "Premium",
+      "description": "Create and manage Adobe Sign agreements",
+      "icon": "Signature",
+      "category": "Documents"
+    },
+    "shared_zendesk": {
+      "name": "Zendesk",
+      "displayName": "Zendesk",
+      "tier": "Standard",
+      "description": "Manage Zendesk tickets and users",
+      "icon": "ChatBot",
+      "category": "Customer Service"
+    },
+    "shared_jira": {
+      "name": "Jira",
+      "displayName": "Jira",
+      "tier": "Premium",
+      "description": "Create and manage Jira issues",
+      "icon": "WorkItem",
+      "category": "Project Management"
+    },
+    "shared_github": {
+      "name": "GitHub",
+      "displayName": "GitHub",
+      "tier": "Standard",
+      "description": "Connect to GitHub repositories",
+      "icon": "BranchMerge",
+      "category": "Development"
+    },
+    "shared_azuredevops": {
+      "name": "Azure DevOps",
+      "displayName": "Azure DevOps",
+      "tier": "Standard",
+      "description": "Connect to Azure DevOps for work items and pipelines",
+      "icon": "AzureDevOps",
+      "category": "Development"
+    },
+    "shared_mailchimp": {
+      "name": "Mailchimp",
+      "displayName": "Mailchimp",
+      "tier": "Standard",
+      "description": "Manage Mailchimp campaigns and subscribers",
+      "icon": "Mail",
+      "category": "Marketing"
+    },
+    "shared_sendgrid": {
+      "name": "SendGrid",
+      "displayName": "SendGrid",
+      "tier": "Standard",
+      "description": "Send emails using SendGrid",
+      "icon": "Mail",
+      "category": "Communication"
+    },
+    "shared_twilio": {
+      "name": "Twilio",
+      "displayName": "Twilio",
+      "tier": "Premium",
+      "description": "Send SMS and make calls with Twilio",
+      "icon": "Phone",
+      "category": "Communication"
+    },
+    "shared_cognitiveservicestextanalytics": {
+      "name": "Text Analytics",
+      "displayName": "Text Analytics",
+      "tier": "Premium",
+      "description": "Analyze text with Azure Cognitive Services",
+      "icon": "TextDocument",
+      "category": "AI"
+    },
+    "shared_cognitiveservicescomputervision": {
+      "name": "Computer Vision",
+      "displayName": "Computer Vision",
+      "tier": "Premium",
+      "description": "Analyze images with Azure Cognitive Services",
+      "icon": "ImageSearch",
+      "category": "AI"
+    },
+    "shared_openai": {
+      "name": "Azure OpenAI",
+      "displayName": "Azure OpenAI",
+      "tier": "Premium",
+      "description": "Use Azure OpenAI models",
+      "icon": "Brain",
+      "category": "AI"
+    },
+    "shared_aibuilder": {
+      "name": "AI Builder",
+      "displayName": "AI Builder",
+      "tier": "Premium",
+      "description": "Use AI Builder models in flows",
+      "icon": "Brain",
+      "category": "AI"
+    }
+  },
+  "tiers": {
+    "Standard": {
+      "description": "Included with Power Automate license",
+      "color": "#107c10"
+    },
+    "Premium": {
+      "description": "Requires Power Automate Premium license",
+      "color": "#8764b8"
+    }
+  },
+  "categories": [
+    "Collaboration",
+    "Communication",
+    "Identity",
+    "Storage",
+    "Data",
+    "Productivity",
+    "Workflow",
+    "Management",
+    "Web",
+    "Social",
+    "CRM",
+    "Automation",
+    "Monitoring",
+    "Messaging",
+    "Events",
+    "Security",
+    "Analytics",
+    "Data Collection",
+    "Documents",
+    "Customer Service",
+    "Project Management",
+    "Development",
+    "Marketing",
+    "AI"
+  ]
+}
