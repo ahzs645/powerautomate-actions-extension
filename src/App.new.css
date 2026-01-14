@@ -1,0 +1,367 @@
+/* App.new.css - Updated styles for the redesigned popup UI */
+/* Uses CSS custom properties based on design tokens */
+
+/* CSS Custom Properties (Design Tokens) */
+:root {
+  /* Colors */
+  --color-primary: #0078d4;
+  --color-primary-dark: #106ebe;
+  --color-primary-light: #deecf9;
+  --color-primary-hover: #005a9e;
+
+  --color-success: #107c10;
+  --color-success-light: #dff6dd;
+  --color-warning: #ff8c00;
+  --color-warning-light: #fff4ce;
+  --color-error: #d13438;
+  --color-error-light: #fde7e9;
+  --color-info: #0078d4;
+  --color-info-light: #deecf9;
+
+  --color-neutral-dark: #323130;
+  --color-neutral-primary: #605e5c;
+  --color-neutral-secondary: #8a8886;
+  --color-neutral-light: #edebe9;
+  --color-neutral-lighter: #f3f2f1;
+  --color-neutral-lightest: #faf9f8;
+  --color-white: #ffffff;
+  --color-black: #000000;
+
+  --color-header-bg: #1a1f25;
+  --color-header-bg-start: #1e2329;
+  --color-header-bg-end: #1a1f25;
+  --color-header-text: #ffffff;
+  --color-header-text-muted: rgba(255, 255, 255, 0.7);
+  --color-header-border: rgba(255, 255, 255, 0.1);
+
+  /* Spacing */
+  --spacing-xxs: 2px;
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 12px;
+  --spacing-lg: 16px;
+  --spacing-xl: 24px;
+  --spacing-xxl: 32px;
+
+  /* Border Radius */
+  --radius-xs: 2px;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.08);
+  --shadow-md: 0 2px 4px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 4px 8px rgba(0, 0, 0, 0.12);
+  --shadow-card: 0 2px 4px rgba(0, 0, 0, 0.08);
+  --shadow-card-hover: 0 4px 8px rgba(0, 0, 0, 0.12);
+
+  /* Typography */
+  --font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Roboto', 'Helvetica Neue', sans-serif;
+  --font-family-mono: 'Consolas', 'Monaco', 'Courier New', monospace;
+
+  --font-size-xxs: 10px;
+  --font-size-xs: 11px;
+  --font-size-sm: 12px;
+  --font-size-md: 14px;
+  --font-size-lg: 16px;
+  --font-size-xl: 20px;
+  --font-size-xxl: 24px;
+
+  /* Layout */
+  --popup-width: 600px;
+  --popup-height: 570px;
+  --header-height: 80px;
+  --header-title-height: 44px;
+  --header-actions-height: 36px;
+  --tab-bar-height: 40px;
+  --icon-button-size: 28px;
+
+  /* Transitions */
+  --transition-fast: 0.1s ease;
+  --transition-normal: 0.15s ease;
+  --transition-slow: 0.2s ease;
+}
+
+/* Base Styles */
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-family);
+  font-size: var(--font-size-md);
+  color: var(--color-neutral-dark);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* App Container */
+.App {
+  width: var(--popup-width);
+  height: var(--popup-height);
+  max-height: 600px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background-color: var(--color-neutral-lightest);
+}
+
+/* Scrollbar Styles */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background-color: var(--color-neutral-lighter);
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: var(--color-neutral-light);
+  border-radius: var(--radius-sm);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--color-neutral-secondary);
+}
+
+/* Legacy Styles (for backward compatibility) */
+.App-header {
+  background: linear-gradient(180deg, var(--color-header-bg-start) 0%, var(--color-header-bg-end) 100%);
+  color: var(--color-header-text);
+  display: flex;
+  flex-direction: column;
+}
+
+.App-icon {
+  cursor: pointer;
+  width: var(--icon-button-size);
+  height: var(--icon-button-size);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  color: rgba(255, 255, 255, 0.85);
+  transition: all var(--transition-fast);
+}
+
+.App-icon:hover {
+  background-color: var(--color-header-border);
+  color: var(--color-white);
+}
+
+/* Action List Styles (legacy) */
+.App-Actions {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.App-Action-Row {
+  display: flex;
+  align-items: center;
+  padding: var(--spacing-md) var(--spacing-lg);
+  margin: var(--spacing-xs) var(--spacing-md);
+  background-color: var(--color-white);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  gap: var(--spacing-md);
+  transition: all var(--transition-normal);
+}
+
+.App-Action-Row:hover {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}
+
+.App-Action-Icon {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+}
+
+.App-Action-Element {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.App-Action-Checkbox {
+  flex-shrink: 0;
+}
+
+.App-Action-Delete,
+.App-Action-Info,
+.App-Action-Favorite {
+  width: var(--icon-button-size);
+  height: var(--icon-button-size);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-fast);
+}
+
+.App-Action-Delete:hover {
+  background-color: var(--color-error-light);
+  color: var(--color-error);
+}
+
+.App-Action-Info {
+  color: var(--color-primary);
+}
+
+.App-Action-Info:hover {
+  background-color: var(--color-primary-light);
+  color: var(--color-primary-dark);
+}
+
+.App-Action-Favorite {
+  color: #ffc107;
+}
+
+.App-Action-Favorite:hover {
+  background-color: var(--color-warning-light);
+}
+
+/* Header Styles (legacy) */
+.App-Action-Header {
+  display: none; /* Hide legacy header - now using card-based layout */
+}
+
+/* Hover Message (legacy) */
+.Hover-message {
+  display: none; /* Replaced by StatusBar component */
+}
+
+/* Recording Animation */
+@keyframes recordingPulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.recording-active {
+  color: #ff4444 !important;
+  animation: recordingPulse 1.5s ease-in-out infinite;
+}
+
+/* Utility Classes */
+.text-truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flex-1 {
+  flex: 1;
+}
+
+.flex-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.gap-sm {
+  gap: var(--spacing-sm);
+}
+
+.gap-md {
+  gap: var(--spacing-md);
+}
+
+.gap-lg {
+  gap: var(--spacing-lg);
+}
+
+/* Card Styles */
+.card {
+  padding: var(--spacing-lg);
+  border-radius: var(--radius-md);
+  background-color: var(--color-white);
+  box-shadow: var(--shadow-card);
+}
+
+.card:hover {
+  box-shadow: var(--shadow-card-hover);
+}
+
+/* Badge Styles */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--spacing-xxs) var(--spacing-sm);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+}
+
+.badge-success {
+  background-color: var(--color-success-light);
+  color: var(--color-success);
+}
+
+.badge-warning {
+  background-color: var(--color-warning-light);
+  color: var(--color-warning);
+}
+
+.badge-error {
+  background-color: var(--color-error-light);
+  color: var(--color-error);
+}
+
+.badge-info {
+  background-color: var(--color-info-light);
+  color: var(--color-info);
+}
+
+/* Empty State */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-xxl);
+  text-align: center;
+  color: var(--color-neutral-primary);
+}
+
+.empty-state-icon {
+  font-size: 48px;
+  color: var(--color-neutral-light);
+  margin-bottom: var(--spacing-lg);
+}
+
+/* Fluent UI Overrides */
+.ms-Pivot {
+  border-bottom: 1px solid var(--color-neutral-light);
+}
+
+.ms-Pivot-link {
+  height: var(--tab-bar-height);
+  font-size: var(--font-size-sm);
+}
+
+.ms-MessageBar {
+  border-radius: 0;
+}
+
+.ms-SearchBox {
+  border-radius: var(--radius-sm);
+}
+
+.ms-Button--primary {
+  border-radius: var(--radius-sm);
+}
+
+.ms-Button--default {
+  border-radius: var(--radius-sm);
+}
