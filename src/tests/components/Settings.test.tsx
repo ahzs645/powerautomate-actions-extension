@@ -34,6 +34,10 @@ const mockStorageService: IStorageService = {
   getSettings: jest.fn(),
   updateSettings: jest.fn(),
   resetSettings: jest.fn(),
+  // Analysis config methods
+  getAnalysisConfig: jest.fn(),
+  updateAnalysisConfig: jest.fn(),
+  resetAnalysisConfig: jest.fn(),
 };
 
 describe('Settings component', () => {
