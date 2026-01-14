@@ -81,108 +81,195 @@ export const FlowAnalysisPanel: React.FC<FlowAnalysisPanelProps> = ({
     }
   }, [selectedTab, analysisResult]);
 
-  // Generate SVG diagram from actions
+  // Generate SVG diagram from actions - proper flow hierarchy
   const generateFlowSvg = (actions: FlowAnalysisResult['actions'], trigger: FlowAnalysisResult['trigger']) => {
     if (!actions || actions.length === 0) {
       return '<p style="color: #666; padding: 20px;">No actions to display in diagram.</p>';
     }
 
-    const nodeWidth = 180;
-    const nodeHeight = 50;
-    const horizontalGap = 60;
-    const verticalGap = 30;
-    const startX = 50;
-    const startY = 30;
+    const nodeWidth = 160;
+    const nodeHeight = 40;
+    const horizontalGap = 40;
+    const verticalGap = 60;
+    const branchGap = 200;
+    const padding = 30;
 
-    // Build a map of actions by name
-    const actionMap = new Map<string, typeof actions[0]>();
+    // Build action map
+    const actionMap = new Map<string, FlowAnalysisResult['actions'][0]>();
     actions.forEach(a => actionMap.set(a.Name, a));
 
-    // Group actions by nesting level
-    const levels: Map<number, typeof actions> = new Map();
+    // Build dependency graph - find children of each action
+    const children = new Map<string, string[]>();
+    const parents = new Map<string, string[]>();
+
+    children.set('__trigger__', []);
+
     actions.forEach(action => {
-      const level = action.nested;
-      if (!levels.has(level)) levels.set(level, []);
-      levels.get(level)!.push(action);
+      if (!children.has(action.Name)) {
+        children.set(action.Name, []);
+      }
+
+      const runAfterList = action.runAfter ? action.runAfter.split(', ').filter(Boolean) : [];
+      parents.set(action.Name, runAfterList);
+
+      if (runAfterList.length === 0 && !action.parent) {
+        // Root level action with no dependencies - connects to trigger
+        children.get('__trigger__')!.push(action.Name);
+      } else {
+        runAfterList.forEach(parentName => {
+          if (!children.has(parentName)) {
+            children.set(parentName, []);
+          }
+          children.get(parentName)!.push(action.Name);
+        });
+      }
+    });
+
+    // Calculate rows using topological sort
+    const rows: string[][] = [];
+    const visited = new Set<string>();
+    const rowAssignment = new Map<string, number>();
+
+    // Start with trigger
+    rows.push(['__trigger__']);
+    rowAssignment.set('__trigger__', 0);
+    visited.add('__trigger__');
+
+    // BFS to assign rows
+    let currentRow = 0;
+    while (currentRow < rows.length) {
+      const nextRowNodes: string[] = [];
+
+      for (const nodeName of rows[currentRow]) {
+        const nodeChildren = children.get(nodeName) || [];
+
+        for (const childName of nodeChildren) {
+          if (visited.has(childName)) continue;
+
+          // Check if all parents are visited
+          const childParents = parents.get(childName) || [];
+          const allParentsVisited = childParents.length === 0 ||
+            childParents.every(p => visited.has(p));
+
+          if (allParentsVisited) {
+            visited.add(childName);
+            nextRowNodes.push(childName);
+            rowAssignment.set(childName, currentRow + 1);
+          }
+        }
+      }
+
+      if (nextRowNodes.length > 0) {
+        rows.push(nextRowNodes);
+      }
+      currentRow++;
+    }
+
+    // Add any unvisited actions (orphans or complex dependencies)
+    actions.forEach(action => {
+      if (!visited.has(action.Name)) {
+        const lastRow = rows.length - 1;
+        rows[lastRow].push(action.Name);
+        rowAssignment.set(action.Name, lastRow);
+        visited.add(action.Name);
+      }
     });
 
     // Calculate positions
-    const positions: Map<string, { x: number; y: number }> = new Map();
-    let currentY = startY;
+    const positions = new Map<string, { x: number; y: number }>();
 
-    // Add trigger node
-    positions.set('__trigger__', { x: startX, y: currentY });
-    currentY += nodeHeight + verticalGap;
+    rows.forEach((row, rowIdx) => {
+      const rowWidth = row.length * nodeWidth + (row.length - 1) * horizontalGap;
+      const startX = padding + (row.length > 1 ? 0 : (branchGap - nodeWidth) / 2);
 
-    // Position nodes level by level
-    const sortedLevels = Array.from(levels.keys()).sort((a, b) => a - b);
-    sortedLevels.forEach(level => {
-      const levelActions = levels.get(level)!;
-      let currentX = startX + (level * horizontalGap);
-
-      levelActions.forEach((action, idx) => {
-        positions.set(action.Name, { x: currentX, y: currentY + (idx * (nodeHeight + verticalGap / 2)) });
+      row.forEach((nodeName, colIdx) => {
+        const x = startX + colIdx * (nodeWidth + horizontalGap);
+        const y = padding + rowIdx * (nodeHeight + verticalGap);
+        positions.set(nodeName, { x, y });
       });
-
-      currentY += levelActions.length * (nodeHeight + verticalGap / 2) + verticalGap;
     });
 
     // Calculate SVG dimensions
-    const maxX = Math.max(...Array.from(positions.values()).map(p => p.x)) + nodeWidth + 50;
-    const maxY = Math.max(...Array.from(positions.values()).map(p => p.y)) + nodeHeight + 50;
+    const allPositions = Array.from(positions.values());
+    const maxX = Math.max(...allPositions.map(p => p.x)) + nodeWidth + padding * 2;
+    const maxY = Math.max(...allPositions.map(p => p.y)) + nodeHeight + padding * 2 + 20;
 
     // Build SVG
-    let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${maxX}" height="${maxY}" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 11px;">`;
+    let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${maxX}" height="${maxY}" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 10px;">`;
 
-    // Add styles
+    // Background
+    svg += `<rect width="100%" height="100%" fill="#fafafa" />`;
+
+    // Defs for markers
     svg += `
       <defs>
-        <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
-          <polygon points="0 0, 10 3.5, 0 7" fill="#666" />
+        <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#666" />
+        </marker>
+        <marker id="arrowhead-red" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#cc4747" />
         </marker>
       </defs>
     `;
 
-    // Draw connections first (so they're behind nodes)
+    // Draw connections
+    const drawnConnections = new Set<string>();
+
     actions.forEach(action => {
       const pos = positions.get(action.Name);
       if (!pos) return;
 
-      if (action.runAfter) {
-        const parents = action.runAfter.split(', ').filter(Boolean);
-        parents.forEach(parent => {
-          const parentPos = positions.get(parent);
-          if (parentPos) {
-            const startXConn = parentPos.x + nodeWidth / 2;
-            const startYConn = parentPos.y + nodeHeight;
-            const endXConn = pos.x + nodeWidth / 2;
-            const endYConn = pos.y;
+      const runAfterList = action.runAfter ? action.runAfter.split(', ').filter(Boolean) : [];
 
-            svg += `<path d="M ${startXConn} ${startYConn} C ${startXConn} ${startYConn + 20}, ${endXConn} ${endYConn - 20}, ${endXConn} ${endYConn}"
-              stroke="#999" stroke-width="1.5" fill="none" marker-end="url(#arrowhead)" />`;
-          }
-        });
-      } else if (action.nested === 0) {
-        // Connect to trigger if it's a root action with no runAfter
+      if (runAfterList.length === 0 && !action.parent) {
+        // Connect from trigger
         const triggerPos = positions.get('__trigger__');
         if (triggerPos) {
-          const startXConn = triggerPos.x + nodeWidth / 2;
-          const startYConn = triggerPos.y + nodeHeight;
-          const endXConn = pos.x + nodeWidth / 2;
-          const endYConn = pos.y;
-
-          svg += `<path d="M ${startXConn} ${startYConn} C ${startXConn} ${startYConn + 20}, ${endXConn} ${endYConn - 20}, ${endXConn} ${endYConn}"
-            stroke="#999" stroke-width="1.5" fill="none" marker-end="url(#arrowhead)" />`;
+          drawConnection(svg, triggerPos, pos, nodeWidth, nodeHeight, false);
         }
       }
+
+      runAfterList.forEach(parentName => {
+        const parentPos = positions.get(parentName);
+        if (parentPos) {
+          const connKey = `${parentName}->${action.Name}`;
+          if (!drawnConnections.has(connKey)) {
+            drawnConnections.add(connKey);
+            // Check if this is an error path
+            const isErrorPath = action.exception === 'Yes';
+            drawConnection(svg, parentPos, pos, nodeWidth, nodeHeight, isErrorPath);
+          }
+        }
+      });
     });
+
+    function drawConnection(svgRef: string, from: {x: number, y: number}, to: {x: number, y: number}, w: number, h: number, isError: boolean) {
+      const startX = from.x + w / 2;
+      const startY = from.y + h;
+      const endX = to.x + w / 2;
+      const endY = to.y;
+
+      const midY = startY + (endY - startY) / 2;
+      const marker = isError ? 'url(#arrowhead-red)' : 'url(#arrowhead)';
+      const color = isError ? '#cc4747' : '#999';
+
+      if (Math.abs(startX - endX) < 5) {
+        // Straight line
+        svg += `<line x1="${startX}" y1="${startY}" x2="${endX}" y2="${endY - 5}"
+          stroke="${color}" stroke-width="1.5" marker-end="${marker}" />`;
+      } else {
+        // Curved path
+        svg += `<path d="M ${startX} ${startY} C ${startX} ${midY}, ${endX} ${midY}, ${endX} ${endY - 5}"
+          stroke="${color}" stroke-width="1.5" fill="none" marker-end="${marker}" />`;
+      }
+    }
 
     // Draw trigger node
     const triggerPos = positions.get('__trigger__')!;
     svg += `
-      <rect x="${triggerPos.x}" y="${triggerPos.y}" width="${nodeWidth}" height="${nodeHeight}" rx="25" ry="25" fill="#569AE5" stroke="#4080c0" stroke-width="2" />
+      <rect x="${triggerPos.x}" y="${triggerPos.y}" width="${nodeWidth}" height="${nodeHeight}" rx="20" ry="20" fill="#569AE5" stroke="#4080c0" stroke-width="2" />
       <text x="${triggerPos.x + nodeWidth / 2}" y="${triggerPos.y + nodeHeight / 2 + 4}" text-anchor="middle" fill="white" font-weight="bold">
-        ${escapeXml(truncateText(trigger?.name || 'Trigger', 20))}
+        ${escapeXml(truncateText(trigger?.name || 'Trigger', 18))}
       </text>
     `;
 
@@ -191,46 +278,55 @@ export const FlowAnalysisPanel: React.FC<FlowAnalysisPanelProps> = ({
       const pos = positions.get(action.Name);
       if (!pos) return;
 
-      const { fill, stroke, shape } = getNodeStyle(action.Type);
-      const displayName = truncateText(action.Name, 22);
+      const { fill, stroke, shape, textColor } = getNodeStyle(action.Type);
+      const displayName = truncateText(action.Name, 20);
 
       if (shape === 'diamond') {
         // Diamond for conditions
         const cx = pos.x + nodeWidth / 2;
         const cy = pos.y + nodeHeight / 2;
-        const hw = nodeWidth / 2;
-        const hh = nodeHeight / 2;
         svg += `
-          <polygon points="${cx},${pos.y} ${pos.x + nodeWidth},${cy} ${cx},${pos.y + nodeHeight} ${pos.x},${cy}"
+          <polygon points="${cx},${pos.y - 5} ${pos.x + nodeWidth + 10},${cy} ${cx},${pos.y + nodeHeight + 5} ${pos.x - 10},${cy}"
             fill="${fill}" stroke="${stroke}" stroke-width="2" />
-          <text x="${cx}" y="${cy + 4}" text-anchor="middle" fill="white" font-weight="bold" font-size="10">
+          <text x="${cx}" y="${cy + 3}" text-anchor="middle" fill="${textColor}" font-weight="bold" font-size="9">
             ${escapeXml(displayName)}
           </text>
         `;
       } else if (shape === 'hexagon') {
         // Hexagon for loops
         const cx = pos.x + nodeWidth / 2;
-        const offset = 15;
+        const offset = 12;
         svg += `
           <polygon points="${pos.x + offset},${pos.y} ${pos.x + nodeWidth - offset},${pos.y} ${pos.x + nodeWidth},${pos.y + nodeHeight / 2} ${pos.x + nodeWidth - offset},${pos.y + nodeHeight} ${pos.x + offset},${pos.y + nodeHeight} ${pos.x},${pos.y + nodeHeight / 2}"
             fill="${fill}" stroke="${stroke}" stroke-width="2" />
-          <text x="${cx}" y="${pos.y + nodeHeight / 2 + 4}" text-anchor="middle" fill="white" font-weight="bold">
+          <text x="${cx}" y="${pos.y + nodeHeight / 2 + 3}" text-anchor="middle" fill="${textColor}" font-weight="bold" font-size="9">
+            ${escapeXml(displayName)}
+          </text>
+        `;
+      } else if (shape === 'parallelogram') {
+        // Parallelogram for scopes
+        const skew = 10;
+        svg += `
+          <polygon points="${pos.x + skew},${pos.y} ${pos.x + nodeWidth + skew},${pos.y} ${pos.x + nodeWidth - skew},${pos.y + nodeHeight} ${pos.x - skew},${pos.y + nodeHeight}"
+            fill="${fill}" stroke="${stroke}" stroke-width="2" />
+          <text x="${pos.x + nodeWidth / 2}" y="${pos.y + nodeHeight / 2 + 3}" text-anchor="middle" fill="${textColor}" font-weight="bold" font-size="9">
             ${escapeXml(displayName)}
           </text>
         `;
       } else {
         // Rectangle (default)
+        const rx = shape === 'rounded' ? 15 : 4;
         svg += `
-          <rect x="${pos.x}" y="${pos.y}" width="${nodeWidth}" height="${nodeHeight}" rx="5" ry="5" fill="${fill}" stroke="${stroke}" stroke-width="2" />
-          <text x="${pos.x + nodeWidth / 2}" y="${pos.y + nodeHeight / 2 + 4}" text-anchor="middle" fill="white" font-weight="bold">
+          <rect x="${pos.x}" y="${pos.y}" width="${nodeWidth}" height="${nodeHeight}" rx="${rx}" ry="${rx}" fill="${fill}" stroke="${stroke}" stroke-width="2" />
+          <text x="${pos.x + nodeWidth / 2}" y="${pos.y + nodeHeight / 2 + 3}" text-anchor="middle" fill="${textColor}" font-weight="bold" font-size="9">
             ${escapeXml(displayName)}
           </text>
         `;
       }
 
-      // Add type label
+      // Add type label below
       svg += `
-        <text x="${pos.x + nodeWidth / 2}" y="${pos.y + nodeHeight + 12}" text-anchor="middle" fill="#666" font-size="9">
+        <text x="${pos.x + nodeWidth / 2}" y="${pos.y + nodeHeight + 12}" text-anchor="middle" fill="#888" font-size="8">
           ${escapeXml(action.Type)}
         </text>
       `;
@@ -240,27 +336,33 @@ export const FlowAnalysisPanel: React.FC<FlowAnalysisPanelProps> = ({
     return svg;
   };
 
-  const getNodeStyle = (actionType: string): { fill: string; stroke: string; shape: string } => {
-    const styles: Record<string, { fill: string; stroke: string; shape: string }> = {
-      'If': { fill: '#2596be', stroke: '#1a7a9e', shape: 'diamond' },
-      'Switch': { fill: '#2596be', stroke: '#1a7a9e', shape: 'diamond' },
-      'Foreach': { fill: '#00C1A0', stroke: '#009a80', shape: 'hexagon' },
-      'Until': { fill: '#00C1A0', stroke: '#009a80', shape: 'hexagon' },
-      'Do_until': { fill: '#00C1A0', stroke: '#009a80', shape: 'hexagon' },
-      'Scope': { fill: '#808080', stroke: '#606060', shape: 'rect' },
-      'InitializeVariable': { fill: '#9925be', stroke: '#7a1d9e', shape: 'rect' },
-      'SetVariable': { fill: '#9925be', stroke: '#7a1d9e', shape: 'rect' },
-      'AppendToArrayVariable': { fill: '#9925be', stroke: '#7a1d9e', shape: 'rect' },
-      'AppendToStringVariable': { fill: '#9925be', stroke: '#7a1d9e', shape: 'rect' },
-      'IncrementVariable': { fill: '#9925be', stroke: '#7a1d9e', shape: 'rect' },
-      'DecrementVariable': { fill: '#9925be', stroke: '#7a1d9e', shape: 'rect' },
-      'Terminate': { fill: '#cc4747', stroke: '#a63939', shape: 'rect' },
-      'Compose': { fill: '#EBDAF9', stroke: '#c9b0e0', shape: 'rect' },
-      'Http': { fill: '#ff8c00', stroke: '#cc7000', shape: 'rect' },
-      'Response': { fill: '#569AE5', stroke: '#4080c0', shape: 'rect' },
+  const getNodeStyle = (actionType: string): { fill: string; stroke: string; shape: string; textColor: string } => {
+    const styles: Record<string, { fill: string; stroke: string; shape: string; textColor: string }> = {
+      'If': { fill: '#2596be', stroke: '#1a7a9e', shape: 'diamond', textColor: 'white' },
+      'Switch': { fill: '#2596be', stroke: '#1a7a9e', shape: 'diamond', textColor: 'white' },
+      'Foreach': { fill: '#00C1A0', stroke: '#009a80', shape: 'hexagon', textColor: 'white' },
+      'Until': { fill: '#00C1A0', stroke: '#009a80', shape: 'hexagon', textColor: 'white' },
+      'Do_until': { fill: '#00C1A0', stroke: '#009a80', shape: 'hexagon', textColor: 'white' },
+      'Scope': { fill: '#808080', stroke: '#606060', shape: 'parallelogram', textColor: 'white' },
+      'InitializeVariable': { fill: '#9925be', stroke: '#7a1d9e', shape: 'rect', textColor: 'white' },
+      'SetVariable': { fill: '#9925be', stroke: '#7a1d9e', shape: 'rect', textColor: 'white' },
+      'AppendToArrayVariable': { fill: '#9925be', stroke: '#7a1d9e', shape: 'rect', textColor: 'white' },
+      'AppendToStringVariable': { fill: '#9925be', stroke: '#7a1d9e', shape: 'rect', textColor: 'white' },
+      'IncrementVariable': { fill: '#9925be', stroke: '#7a1d9e', shape: 'rect', textColor: 'white' },
+      'DecrementVariable': { fill: '#9925be', stroke: '#7a1d9e', shape: 'rect', textColor: 'white' },
+      'Terminate': { fill: '#cc4747', stroke: '#a63939', shape: 'rect', textColor: 'white' },
+      'Compose': { fill: '#EBDAF9', stroke: '#c9b0e0', shape: 'rect', textColor: '#333' },
+      'Http': { fill: '#ff8c00', stroke: '#cc7000', shape: 'rect', textColor: 'white' },
+      'Response': { fill: '#569AE5', stroke: '#4080c0', shape: 'rounded', textColor: 'white' },
+      'OpenApiConnection': { fill: '#0078d4', stroke: '#005a9e', shape: 'rect', textColor: 'white' },
+      'ApiConnection': { fill: '#0078d4', stroke: '#005a9e', shape: 'rect', textColor: 'white' },
+      'ParseJson': { fill: '#107c10', stroke: '#0b5c0b', shape: 'rect', textColor: 'white' },
+      'Select': { fill: '#107c10', stroke: '#0b5c0b', shape: 'rect', textColor: 'white' },
+      'Filter': { fill: '#107c10', stroke: '#0b5c0b', shape: 'rect', textColor: 'white' },
+      'Join': { fill: '#107c10', stroke: '#0b5c0b', shape: 'rect', textColor: 'white' },
     };
 
-    return styles[actionType] || { fill: '#569AE5', stroke: '#4080c0', shape: 'rect' };
+    return styles[actionType] || { fill: '#569AE5', stroke: '#4080c0', shape: 'rect', textColor: 'white' };
   };
 
   const truncateText = (text: string, maxLength: number): string => {
