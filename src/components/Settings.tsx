@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState, useRef } from 'react';
 import { Stack, Text, Separator, Toggle, TooltipHost, TextField, ChoiceGroup, IChoiceGroupOption, PrimaryButton, DefaultButton, MessageBar, MessageBarType, SpinButton, Label } from '@fluentui/react';
 import { IStorageService } from '../services/interfaces';
 import { ISettingsModel, defaultSettings, IActionModel } from '../models';
-import { IAnalysisConfig, IRatingThresholds, INamingConfig, defaultAnalysisConfig } from '../config/AnalysisConfig';
+import { IAnalysisConfig, IRatingThresholds, INamingConfig, defaultAnalysisConfig, IAnalysisConfigExport, ANALYSIS_CONFIG_VERSION } from '../config/AnalysisConfig';
 
 interface SettingsProps {
   storageService: IStorageService;
@@ -15,6 +15,7 @@ const Settings: React.FC<SettingsProps> = ({ storageService, onSettingsChange, o
   const [analysisConfig, setAnalysisConfig] = useState<IAnalysisConfig>(defaultAnalysisConfig);
   const [message, setMessage] = useState<{ text: string; type: MessageBarType } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const configFileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     storageService.getSettings().then((loadedSettings) => {
@@ -200,6 +201,74 @@ const Settings: React.FC<SettingsProps> = ({ storageService, onSettingsChange, o
     setMessage({ text: 'Analysis configuration reset to defaults', type: MessageBarType.success });
   }, [storageService]);
 
+  // Config Export Handler
+  const handleConfigExport = useCallback(async () => {
+    try {
+      const config = await storageService.getAnalysisConfig();
+
+      const exportData: IAnalysisConfigExport = {
+        version: ANALYSIS_CONFIG_VERSION,
+        exportDate: new Date().toISOString(),
+        config: config,
+      };
+
+      const dataStr = JSON.stringify(exportData, null, 2);
+      const dataBlob = new Blob([dataStr], { type: 'application/json' });
+      const url = URL.createObjectURL(dataBlob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `analysis-config-${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      setMessage({ text: 'Analysis configuration exported successfully', type: MessageBarType.success });
+    } catch (error) {
+      setMessage({ text: 'Failed to export configuration', type: MessageBarType.error });
+      console.error('Config export error:', error);
+    }
+  }, [storageService]);
+
+  // Config Import Handler
+  const handleConfigImport = useCallback(() => {
+    configFileInputRef.current?.click();
+  }, []);
+
+  const handleConfigFileChange = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (file.type !== 'application/json' && !file.name.endsWith('.json')) {
+      setMessage({ text: 'Please select a valid JSON file', type: MessageBarType.error });
+      return;
+    }
+
+    try {
+      const fileContent = await file.text();
+      const importedData: IAnalysisConfigExport = JSON.parse(fileContent);
+
+      // Validate structure
+      if (!importedData.config || !importedData.config.ratingThresholds) {
+        setMessage({ text: 'Invalid configuration file format', type: MessageBarType.error });
+        return;
+      }
+
+      await storageService.updateAnalysisConfig(importedData.config);
+      const updatedConfig = await storageService.getAnalysisConfig();
+      setAnalysisConfig(updatedConfig);
+
+      setMessage({ text: 'Analysis configuration imported successfully', type: MessageBarType.success });
+    } catch (error) {
+      setMessage({ text: 'Failed to import configuration: Invalid JSON format', type: MessageBarType.error });
+      console.error('Config import error:', error);
+    } finally {
+      if (configFileInputRef.current) {
+        configFileInputRef.current.value = '';
+      }
+    }
+  }, [storageService]);
+
   return (
     <Stack tokens={{ childrenGap: 24 }}>
       <input
@@ -209,7 +278,14 @@ const Settings: React.FC<SettingsProps> = ({ storageService, onSettingsChange, o
         style={{ display: 'none' }}
         onChange={handleFileChange}
       />
-      
+      <input
+        ref={configFileInputRef}
+        type="file"
+        accept=".json,application/json"
+        style={{ display: 'none' }}
+        onChange={handleConfigFileChange}
+      />
+
       <Stack tokens={{ childrenGap: 8 }}>
         <Text variant="xLarge" styles={{ root: { fontWeight: 600, color: '#323130' } }}>
           Extension Settings
@@ -399,6 +475,29 @@ const Settings: React.FC<SettingsProps> = ({ storageService, onSettingsChange, o
         <Text variant="small" styles={{ root: { color: '#605e5c' } }}>
           Customize thresholds and scoring rules for flow quality analysis
         </Text>
+
+        {/* Config Templates */}
+        <Stack tokens={{ childrenGap: 8 }} styles={{ root: { marginTop: 12 } }}>
+          <Text variant="small" styles={{ root: { fontWeight: 600 } }}>
+            Configuration Templates
+          </Text>
+          <Text variant="small" styles={{ root: { color: '#605e5c' } }}>
+            Export your analysis settings to share with team or import from a template
+          </Text>
+
+          <Stack horizontal tokens={{ childrenGap: 12 }}>
+            <PrimaryButton
+              text="Import Configuration"
+              onClick={handleConfigImport}
+              iconProps={{ iconName: 'Download' }}
+            />
+            <DefaultButton
+              text="Export Configuration"
+              onClick={handleConfigExport}
+              iconProps={{ iconName: 'Upload' }}
+            />
+          </Stack>
+        </Stack>
 
         {/* Rating Thresholds */}
         <Stack tokens={{ childrenGap: 8 }} styles={{ root: { marginTop: 12 } }}>

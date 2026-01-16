@@ -1,6 +1,7 @@
 import { IActionModel, ISettingsModel, defaultSettings } from "../models";
 import { IStorageService } from "./interfaces";
 import { IAnalysisConfig, defaultAnalysisConfig } from "../config/AnalysisConfig";
+import { SavedFlowAnalysis } from "./FlowAnalyzer";
 
 export class StorageService implements IStorageService {
     private RECORDED_ACTIONS_KEY = "recordedActions";
@@ -11,6 +12,7 @@ export class StorageService implements IStorageService {
     private FAVORITE_ACTIONS_KEY = "favoriteActions";
     private SETTINGS_KEY = "appSettings";
     private ANALYSIS_CONFIG_KEY = "analysisConfig";
+    private SAVED_FLOW_ANALYSIS_KEY = "savedFlowAnalysis";
 
     public async getRecordedActions(): Promise<IActionModel[]> {
         return await this.getActionsByKey(this.RECORDED_ACTIONS_KEY);
@@ -246,6 +248,27 @@ export class StorageService implements IStorageService {
     public async resetAnalysisConfig(): Promise<IAnalysisConfig> {
         await chrome.storage.local.set({ [this.ANALYSIS_CONFIG_KEY]: defaultAnalysisConfig });
         return defaultAnalysisConfig;
+    }
+
+    // Saved Flow Analysis Methods
+    public async getSavedFlowAnalysis(): Promise<SavedFlowAnalysis | null> {
+        return new Promise((resolve, reject) => {
+            try {
+                chrome.storage.local.get(this.SAVED_FLOW_ANALYSIS_KEY, (result) => {
+                    resolve(result[this.SAVED_FLOW_ANALYSIS_KEY] || null);
+                });
+            } catch (error) {
+                reject(error);
+            }
+        });
+    }
+
+    public async saveFlowAnalysis(analysis: SavedFlowAnalysis): Promise<void> {
+        await chrome.storage.local.set({ [this.SAVED_FLOW_ANALYSIS_KEY]: analysis });
+    }
+
+    public async clearSavedFlowAnalysis(): Promise<void> {
+        await chrome.storage.local.set({ [this.SAVED_FLOW_ANALYSIS_KEY]: null });
     }
 
     private async getActionsByKey(key: string): Promise<IActionModel[]> {

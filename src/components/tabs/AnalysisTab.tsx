@@ -1,7 +1,7 @@
 // AnalysisTab - Compact flow analysis display for popup
 // Shows key metrics with option to open full analysis panel
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   mergeStyles,
   Icon,
@@ -10,11 +10,14 @@ import {
   Spinner,
   SpinnerSize,
   ProgressIndicator,
+  MessageBar,
+  MessageBarType,
 } from '@fluentui/react';
 import { MetricCard, MetricGrid } from '../shared/MetricCard';
 import { NotFlowPageEmptyState, ErrorEmptyState } from '../shared/EmptyState';
 import { designTokens, getRatingColor } from '../../styles/theme';
-import { FlowAnalyzer, FlowAnalysisResult } from '../../services/FlowAnalyzer';
+import { FlowAnalyzer, FlowAnalysisResult, SavedFlowAnalysis } from '../../services/FlowAnalyzer';
+import { StorageService } from '../../services/StorageService';
 
 export interface AnalysisTabProps {
   isFlowPage: boolean;
@@ -124,9 +127,30 @@ export const AnalysisTab: React.FC<AnalysisTabProps> = ({
   onOpenFullAnalysis,
   onExportReport,
 }) => {
+  const storageService = useMemo(() => new StorageService(), []);
   const [analysisResult, setAnalysisResult] = useState<FlowAnalysisResult | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [savedAnalysis, setSavedAnalysis] = useState<SavedFlowAnalysis | null>(null);
+  const [notification, setNotification] = useState<{ text: string; type: MessageBarType } | null>(null);
+  const lastDefinitionRef = useRef<string | null>(null);
+
+  // Check for saved analysis on mount
+  useEffect(() => {
+    storageService.getSavedFlowAnalysis().then((saved) => {
+      if (saved) {
+        setSavedAnalysis(saved);
+      }
+    });
+  }, [storageService]);
+
+  // Auto-dismiss notification after 3 seconds
+  useEffect(() => {
+    if (notification) {
+      const timer = setTimeout(() => setNotification(null), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [notification]);
 
   // Fetch flow definition from page and analyze
   const analyzeFlow = useCallback(async () => {
@@ -159,13 +183,38 @@ export const AnalysisTab: React.FC<AnalysisTabProps> = ({
       const parsed = JSON.parse(response.definition);
       const result = analyzer.analyze(parsed, response.name || 'Flow');
       setAnalysisResult(result);
+
+      // Save analysis for later
+      lastDefinitionRef.current = response.definition;
+      const savedData: SavedFlowAnalysis = {
+        flowDefinition: response.definition,
+        flowName: result.name,
+        flowId: result.id,
+        analysisResult: result,
+        savedAt: new Date().toISOString(),
+      };
+      await storageService.saveFlowAnalysis(savedData);
+      setSavedAnalysis(savedData);
     } catch (err) {
       console.error('Analysis error:', err);
       setError(err instanceof Error ? err.message : 'Analysis failed');
     } finally {
       setIsLoading(false);
     }
-  }, [isFlowPage]);
+  }, [isFlowPage, storageService]);
+
+  // Load saved analysis
+  const handleLoadSaved = useCallback(async () => {
+    if (savedAnalysis) {
+      setAnalysisResult(savedAnalysis.analysisResult);
+      lastDefinitionRef.current = savedAnalysis.flowDefinition;
+      const savedDate = new Date(savedAnalysis.savedAt).toLocaleString();
+      setNotification({
+        text: `Loaded "${savedAnalysis.flowName}" from ${savedDate}`,
+        type: MessageBarType.info,
+      });
+    }
+  }, [savedAnalysis]);
 
   // Auto-analyze when on flow page
   useEffect(() => {
@@ -178,7 +227,26 @@ export const AnalysisTab: React.FC<AnalysisTabProps> = ({
   if (!isFlowPage) {
     return (
       <div className={containerStyles}>
+        {notification && (
+          <MessageBar
+            messageBarType={notification.type}
+            onDismiss={() => setNotification(null)}
+            styles={{ root: { marginBottom: designTokens.spacing.md } }}
+          >
+            {notification.text}
+          </MessageBar>
+        )}
         <NotFlowPageEmptyState />
+        {savedAnalysis && (
+          <div style={{ marginTop: designTokens.spacing.lg, textAlign: 'center' }}>
+            <DefaultButton
+              text={`Load Last: ${savedAnalysis.flowName}`}
+              iconProps={{ iconName: 'History' }}
+              onClick={handleLoadSaved}
+              title={`Analyzed on ${new Date(savedAnalysis.savedAt).toLocaleString()}`}
+            />
+          </div>
+        )}
       </div>
     );
   }
@@ -219,6 +287,17 @@ export const AnalysisTab: React.FC<AnalysisTabProps> = ({
 
   return (
     <div className={containerStyles}>
+      {/* Notification */}
+      {notification && (
+        <MessageBar
+          messageBarType={notification.type}
+          onDismiss={() => setNotification(null)}
+          styles={{ root: { marginBottom: designTokens.spacing.md } }}
+        >
+          {notification.text}
+        </MessageBar>
+      )}
+
       {/* Key Metrics */}
       <MetricGrid columns={4} gap="small">
         <MetricCard

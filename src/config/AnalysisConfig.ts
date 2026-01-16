@@ -204,6 +204,18 @@ export const defaultAnalysisConfig: IAnalysisConfig = {
 };
 
 // ============================================================================
+// CONFIG EXPORT/IMPORT
+// ============================================================================
+
+export const ANALYSIS_CONFIG_VERSION = '1.0';
+
+export interface IAnalysisConfigExport {
+  version: string;  // Schema version for future compatibility
+  exportDate: string;  // ISO timestamp
+  config: IAnalysisConfig;
+}
+
+// ============================================================================
 // UTILITY FUNCTIONS
 // ============================================================================
 

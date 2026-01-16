@@ -34,6 +34,46 @@ export interface SolutionDependency {
   displayName: string;
   type: string;
   dependentComponent: string;
+  schemaName?: string;          // Solution component schema name
+  requiredType?: string;        // Type code (29 = workflow, etc.)
+  solution?: string;            // Required solution if known
+}
+
+// Flow dependency tracking for solution-level diagram
+export interface FlowDependency {
+  sourceFlowName: string;
+  targetFlowName: string;
+  targetFlowId: string;
+  actionName: string;  // The Workflow action that makes the call
+  isInternal: boolean; // true if target flow is in the solution
+}
+
+export interface FlowDependencyGraph {
+  nodes: Array<{
+    id: string;
+    name: string;
+    displayName: string;
+    actionCount: number;
+    complexity: number;
+    rating: number;
+    isInSolution: boolean;
+  }>;
+  edges: FlowDependency[];
+  missingFlows: string[]; // IDs of referenced flows not in solution
+}
+
+// Missing child flow detection
+export interface MissingChildFlow {
+  flowId: string;
+  flowDisplayName?: string;
+  referencedBy: string[];       // Flow names that reference this
+  actionNames: string[];        // Specific action names making the call
+}
+
+export interface EnhancedMissingDependencies {
+  solutionDependencies: SolutionDependency[];  // From solution.xml
+  missingChildFlows: MissingChildFlow[];        // From flow analysis
+  totalMissing: number;
 }
 
 export interface SolutionAnalysisResult {
@@ -363,6 +403,169 @@ export class SolutionAnalyzer {
       averageRating: Math.round(totalRating / analyzedFlows.length),
       flowsWithIssues,
     };
+  }
+
+  // ============================================================================
+  // FLOW DEPENDENCY EXTRACTION (for solution-level diagram)
+  // ============================================================================
+
+  /**
+   * Extract flow dependencies from a solution - identifies which flows call other flows
+   */
+  public extractFlowDependencies(flows: SolutionFlow[]): FlowDependencyGraph {
+    const nodes: FlowDependencyGraph['nodes'] = [];
+    const edges: FlowDependency[] = [];
+    const flowIdMap = new Map<string, SolutionFlow>();
+    const flowNameMap = new Map<string, SolutionFlow>();
+
+    // Build flow lookup maps
+    flows.forEach(flow => {
+      // Try to get flow ID from definition
+      const flowId = flow.definition?.name ||
+                     flow.definition?.properties?.workflowId ||
+                     flow.name;
+      flowIdMap.set(flowId.toLowerCase(), flow);
+      flowNameMap.set(flow.name.toLowerCase(), flow);
+
+      nodes.push({
+        id: flow.name,
+        name: flow.name,
+        displayName: flow.displayName,
+        actionCount: flow.analysis?.actionCount || 0,
+        complexity: flow.analysis?.complexity || 0,
+        rating: flow.analysis?.overallRating || 0,
+        isInSolution: true,
+      });
+    });
+
+    // Find Workflow actions in each flow
+    const referencedFlowIds = new Set<string>();
+
+    flows.forEach(flow => {
+      if (!flow.analysis?.actions) return;
+
+      flow.analysis.actions.forEach(action => {
+        if (action.Type === 'Workflow' && action.object) {
+          try {
+            const actionObj = JSON.parse(action.object);
+            // Try different paths to find child flow reference
+            const workflowRef = actionObj.inputs?.host?.workflow?.id ||
+                               actionObj.inputs?.host?.workflowReferenceName ||
+                               actionObj.inputs?.workflow?.id ||
+                               actionObj.inputs?.workflowId;
+
+            if (workflowRef) {
+              const refLower = workflowRef.toLowerCase();
+              referencedFlowIds.add(refLower);
+
+              // Check if target flow is in solution
+              const targetFlow = flowIdMap.get(refLower) || flowNameMap.get(refLower);
+
+              edges.push({
+                sourceFlowName: flow.name,
+                targetFlowName: targetFlow?.name || workflowRef,
+                targetFlowId: workflowRef,
+                actionName: action.Name,
+                isInternal: !!targetFlow,
+              });
+            }
+          } catch (error) {
+            console.error(`Error parsing Workflow action ${action.Name}:`, error);
+          }
+        }
+      });
+    });
+
+    // Find missing flows (referenced but not in solution)
+    const missingFlows: string[] = [];
+    referencedFlowIds.forEach(id => {
+      if (!flowIdMap.has(id) && !flowNameMap.has(id)) {
+        missingFlows.push(id);
+
+        // Add external flow node
+        nodes.push({
+          id,
+          name: id,
+          displayName: `External: ${id.substring(0, 20)}${id.length > 20 ? '...' : ''}`,
+          actionCount: 0,
+          complexity: 0,
+          rating: 0,
+          isInSolution: false,
+        });
+      }
+    });
+
+    return { nodes, edges, missingFlows };
+  }
+
+  /**
+   * Detect child flows that are referenced but not included in the solution
+   */
+  public detectMissingChildFlows(flows: SolutionFlow[]): MissingChildFlow[] {
+    const dependencyGraph = this.extractFlowDependencies(flows);
+    const missingFlows: Map<string, MissingChildFlow> = new Map();
+
+    dependencyGraph.edges.forEach(edge => {
+      if (!edge.isInternal) {
+        const existing = missingFlows.get(edge.targetFlowId);
+        if (existing) {
+          if (!existing.referencedBy.includes(edge.sourceFlowName)) {
+            existing.referencedBy.push(edge.sourceFlowName);
+          }
+          if (!existing.actionNames.includes(edge.actionName)) {
+            existing.actionNames.push(edge.actionName);
+          }
+        } else {
+          missingFlows.set(edge.targetFlowId, {
+            flowId: edge.targetFlowId,
+            flowDisplayName: edge.targetFlowName,
+            referencedBy: [edge.sourceFlowName],
+            actionNames: [edge.actionName],
+          });
+        }
+      }
+    });
+
+    return Array.from(missingFlows.values());
+  }
+
+  /**
+   * Get combined missing dependencies (solution.xml + child flow analysis)
+   */
+  public getEnhancedMissingDependencies(
+    solutionXml: string,
+    flows: SolutionFlow[]
+  ): EnhancedMissingDependencies {
+    const solutionDependencies = this.parseMissingDependencies(solutionXml);
+    const missingChildFlows = this.detectMissingChildFlows(flows);
+
+    return {
+      solutionDependencies,
+      missingChildFlows,
+      totalMissing: solutionDependencies.length + missingChildFlows.length,
+    };
+  }
+
+  /**
+   * Convert dependency type code to readable name
+   */
+  public getReadableDependencyType(typeCode: string | undefined): string {
+    const typeMap: Record<string, string> = {
+      '1': 'Entity',
+      '2': 'Attribute',
+      '9': 'Option Set',
+      '10': 'Relationship',
+      '29': 'Workflow',
+      '60': 'Web Resource',
+      '61': 'Site Map',
+      '62': 'Role',
+      '63': 'Privilege',
+      '65': 'Plug-in Type',
+      '66': 'Plug-in Assembly',
+      '91': 'Managed Property',
+      '92': 'Connection Role',
+    };
+    return typeMap[typeCode || ''] || typeCode || 'Unknown';
   }
 }
 

@@ -1,5 +1,6 @@
 import { IActionModel, ISettingsModel } from "../../models";
 import { IAnalysisConfig } from "../../config/AnalysisConfig";
+import { SavedFlowAnalysis } from "../FlowAnalyzer";
 
 export interface IStorageService {
     getRecordedActions(): Promise<IActionModel[]>;
@@ -38,4 +39,9 @@ export interface IStorageService {
     getAnalysisConfig(): Promise<IAnalysisConfig>;
     updateAnalysisConfig(config: Partial<IAnalysisConfig>): Promise<IAnalysisConfig>;
     resetAnalysisConfig(): Promise<IAnalysisConfig>;
+
+    // Saved flow analysis
+    getSavedFlowAnalysis(): Promise<SavedFlowAnalysis | null>;
+    saveFlowAnalysis(analysis: SavedFlowAnalysis): Promise<void>;
+    clearSavedFlowAnalysis(): Promise<void>;
 }

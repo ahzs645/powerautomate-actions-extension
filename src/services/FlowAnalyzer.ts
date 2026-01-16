@@ -99,6 +99,15 @@ export interface FlowAnalysisResult {
   composesCount: number;
 }
 
+// Saved flow analysis for persistence
+export interface SavedFlowAnalysis {
+  flowDefinition: string;  // Original JSON definition
+  flowName: string;
+  flowId?: string;
+  analysisResult: FlowAnalysisResult;
+  savedAt: string;  // ISO timestamp
+}
+
 // Note: Complexity ratings, thresholds, scoring config, and naming conventions
 // are now loaded from IAnalysisConfig passed to the FlowAnalyzer constructor
 
