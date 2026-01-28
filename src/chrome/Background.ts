@@ -18,7 +18,25 @@ interface FlowEditorState {
     flowEditorTabId?: number;
 }
 
-const flowEditorState: FlowEditorState = {};
+// Per-tab state: keyed by initiator (Power Automate) tab ID
+const tabStates = new Map<number, FlowEditorState>();
+// Reverse lookup: flow editor tab ID → initiator tab ID
+const editorToInitiator = new Map<number, number>();
+
+function getOrCreateTabState(tabId: number): FlowEditorState {
+    if (!tabStates.has(tabId)) {
+        tabStates.set(tabId, {});
+    }
+    return tabStates.get(tabId)!;
+}
+
+function getStateForEditorTab(editorTabId: number): FlowEditorState | undefined {
+    const initiatorId = editorToInitiator.get(editorTabId);
+    if (initiatorId !== undefined) {
+        return tabStates.get(initiatorId);
+    }
+    return undefined;
+}
 
 const DEBUG = true;
 
@@ -35,10 +53,10 @@ function debugError(...args: any[]) {
 }
 
 // Token management functions
-function isTokenExpired(): boolean {
-    if (!flowEditorState.tokenExpires) return true;
+function isTokenExpired(state: FlowEditorState): boolean {
+    if (!state.tokenExpires) return true;
     const bufferTime = 5 * 60 * 1000; // 5 minutes buffer
-    return new Date().getTime() > (flowEditorState.tokenExpires.getTime() - bufferTime);
+    return new Date().getTime() > (state.tokenExpires.getTime() - bufferTime);
 }
 
 function showNotification(message: string) {
@@ -50,30 +68,30 @@ function showNotification(message: string) {
     });
 }
 
-function sendTokenChanged() {
-    if (!flowEditorState.token || !flowEditorState.apiUrl) {
+function sendTokenChanged(state: FlowEditorState) {
+    if (!state.token || !state.apiUrl) {
         debugError('Cannot send token - missing token or apiUrl');
         return;
     }
 
-    if (isTokenExpired()) {
+    if (isTokenExpired(state)) {
         debugError('Token expired, not sending');
         showNotification('Authentication token expired. Please refresh the Power Automate page.');
         return;
     }
 
     debugLog('Sending token changed message');
-    sendMessageToFlowEditorTab({
+    sendMessageToFlowEditorTab(state, {
         type: "token-changed",
-        token: flowEditorState.token,
-        apiUrl: flowEditorState.apiUrl,
+        token: state.token,
+        apiUrl: state.apiUrl,
     });
 }
 
-function refreshInitiator() {
-    if (flowEditorState.initiatorTabId) {
-        debugLog('Refreshing initiator tab:', flowEditorState.initiatorTabId);
-        chrome.tabs.reload(flowEditorState.initiatorTabId, {}, () => {
+function refreshInitiator(state: FlowEditorState) {
+    if (state.initiatorTabId) {
+        debugLog('Refreshing initiator tab:', state.initiatorTabId);
+        chrome.tabs.reload(state.initiatorTabId, {}, () => {
             if (chrome.runtime.lastError) {
                 debugError('Failed to refresh tab:', chrome.runtime.lastError);
             } else {
@@ -85,10 +103,10 @@ function refreshInitiator() {
     }
 }
 
-function sendMessageToFlowEditorTab(action: FlowEditorActions) {
-    if (flowEditorState.flowEditorTabId) {
-        debugLog('Sending message to flow editor tab:', action.type);
-        chrome.tabs.sendMessage(flowEditorState.flowEditorTabId, action, (response) => {
+function sendMessageToFlowEditorTab(state: FlowEditorState, action: FlowEditorActions) {
+    if (state.flowEditorTabId) {
+        debugLog('Sending message to flow editor tab:', action.type, 'tab:', state.flowEditorTabId);
+        chrome.tabs.sendMessage(state.flowEditorTabId, action, (response) => {
             if (chrome.runtime.lastError) {
                 debugError('Failed to send message to flow editor tab:', chrome.runtime.lastError);
             } else {
@@ -187,15 +205,19 @@ function extractFlowDataFromApiUrl(url: string): { envId: string; flowId: string
 
 // Listen for Flow API requests to capture token
 function listenFlowApiRequests(details: chrome.webRequest.WebRequestHeadersDetails) {
-    if (flowEditorState.flowEditorTabId === details.tabId) {
+    // Skip requests from any known flow editor tab
+    if (editorToInitiator.has(details.tabId)) {
         return;
     }
 
-    debugLog('Intercepted API request:', details.url);
+    debugLog('Intercepted API request from tab:', details.tabId, details.url);
+
+    const state = getOrCreateTabState(details.tabId);
 
     const flowData = extractFlowDataFromApiUrl(details.url);
     if (flowData) {
-        flowEditorState.lastMatchedRequest = flowData;
+        state.lastMatchedRequest = flowData;
+        state.initiatorTabId = details.tabId;
     }
 
     const authHeader = details.requestHeaders?.find(
@@ -209,29 +231,27 @@ function listenFlowApiRequests(details: chrome.webRequest.WebRequestHeadersDetai
         return;
     }
 
-    if (flowEditorState.token !== token) {
-        debugLog('New token detected, updating state');
-        flowEditorState.token = token;
+    if (state.token !== token) {
+        debugLog('New token detected for tab:', details.tabId);
+        state.token = token;
 
         try {
             const decodedToken = jwtDecode(token) as any;
-            flowEditorState.tokenExpires = new Date(decodedToken.exp * 1000);
-            debugLog('Token expires at:', flowEditorState.tokenExpires);
+            state.tokenExpires = new Date(decodedToken.exp * 1000);
+            debugLog('Token expires at:', state.tokenExpires);
 
             const url = new URL(details.url);
-            flowEditorState.apiUrl = `${url.protocol}//${url.hostname}/`;
-            debugLog('API URL set to:', flowEditorState.apiUrl);
+            state.apiUrl = `${url.protocol}//${url.hostname}/`;
+            debugLog('API URL set to:', state.apiUrl);
 
-            sendTokenChanged();
+            // Only push token to the editor if one is open for this tab
+            if (state.flowEditorTabId) {
+                sendTokenChanged(state);
+            }
         } catch (error) {
             debugError('Failed to decode token:', error);
             return;
         }
-    }
-
-    if (flowEditorState.lastMatchedRequest) {
-        debugLog('Flow data extracted:', flowEditorState.lastMatchedRequest);
-        flowEditorState.initiatorTabId = details.tabId;
     }
 }
 
@@ -243,19 +263,30 @@ function handleFlowEditorMessage(
 ): boolean {
     debugLog('Received flow editor message:', action.type);
 
-    if (sender.tab?.id === flowEditorState.flowEditorTabId) {
-        switch (action.type) {
-            case 'app-loaded':
-                debugLog('Flow editor app loaded, sending token');
-                sendResponse();
-                sendTokenChanged();
-                return true;
-            case 'refresh':
-                debugLog('Refresh requested');
-                sendResponse();
-                refreshInitiator();
-                return true;
-        }
+    const editorTabId = sender.tab?.id;
+    if (editorTabId === undefined) {
+        sendResponse();
+        return true;
+    }
+
+    const state = getStateForEditorTab(editorTabId);
+    if (!state) {
+        debugError('No state found for editor tab:', editorTabId);
+        sendResponse();
+        return true;
+    }
+
+    switch (action.type) {
+        case 'app-loaded':
+            debugLog('Flow editor app loaded, sending token');
+            sendResponse();
+            sendTokenChanged(state);
+            return true;
+        case 'refresh':
+            debugLog('Refresh requested');
+            sendResponse();
+            refreshInitiator(state);
+            return true;
     }
 
     sendResponse();
@@ -264,44 +295,51 @@ function handleFlowEditorMessage(
 
 // Open Flow Editor
 function openFlowEditor(tab: chrome.tabs.Tab) {
-    debugLog('Opening flow editor, current state:', {
-        hasLastMatchedRequest: !!flowEditorState.lastMatchedRequest,
-        hasToken: !!flowEditorState.token,
-        tokenExpired: isTokenExpired(),
+    if (!tab.id) {
+        debugError('No tab ID available');
+        return { success: false, error: 'No tab ID' };
+    }
+
+    const state = getOrCreateTabState(tab.id);
+
+    debugLog('Opening flow editor for tab:', tab.id, {
+        hasLastMatchedRequest: !!state.lastMatchedRequest,
+        hasToken: !!state.token,
+        tokenExpired: isTokenExpired(state),
         currentTabUrl: tab.url
     });
 
     // Try to extract flow data from current tab URL if not available
-    if (!flowEditorState.lastMatchedRequest && tab.url) {
+    if (!state.lastMatchedRequest && tab.url) {
         debugLog('No matched request found, trying to extract from current tab URL');
-        flowEditorState.lastMatchedRequest = extractFlowDataFromTabUrl(tab.url);
-        if (flowEditorState.lastMatchedRequest) {
-            flowEditorState.initiatorTabId = tab.id;
-            debugLog('Flow data extracted from current tab:', flowEditorState.lastMatchedRequest);
+        state.lastMatchedRequest = extractFlowDataFromTabUrl(tab.url);
+        if (state.lastMatchedRequest) {
+            state.initiatorTabId = tab.id;
+            debugLog('Flow data extracted from current tab:', state.lastMatchedRequest);
         }
     }
 
-    if (!flowEditorState.lastMatchedRequest) {
+    if (!state.lastMatchedRequest) {
         debugError('No flow data found. Make sure you are on a Power Automate flow page.');
         showNotification('Please navigate to a Power Automate flow page first.');
         return { success: false, error: 'No flow data found' };
     }
 
-    if (!flowEditorState.token) {
+    if (!state.token) {
         debugError('No authentication token found');
         showNotification('No authentication detected. Please refresh the Power Automate page and try again.');
         return { success: false, error: 'No authentication token' };
     }
 
-    if (isTokenExpired()) {
+    if (isTokenExpired(state)) {
         debugError('Token expired, requesting refresh');
         showNotification('Token expired. Please refresh the Power Automate page and try again.');
         return { success: false, error: 'Token expired' };
     }
 
     const appUrl = `${chrome.runtime.getURL("flow-editor.html")}?envId=${
-        flowEditorState.lastMatchedRequest.envId
-    }&flowId=${flowEditorState.lastMatchedRequest.flowId}`;
+        state.lastMatchedRequest.envId
+    }&flowId=${state.lastMatchedRequest.flowId}`;
 
     debugLog('Creating flow editor tab with URL:', appUrl);
 
@@ -311,8 +349,9 @@ function openFlowEditor(tab: chrome.tabs.Tab) {
             showNotification('Failed to open flow editor. Please try again.');
             return;
         }
-        flowEditorState.flowEditorTabId = appTab.id;
-        debugLog('Flow editor tab created with ID:', appTab.id);
+        state.flowEditorTabId = appTab.id;
+        editorToInitiator.set(appTab.id!, tab.id!);
+        debugLog('Flow editor tab created with ID:', appTab.id, 'for initiator tab:', tab.id);
     });
 
     return { success: true };
@@ -320,23 +359,32 @@ function openFlowEditor(tab: chrome.tabs.Tab) {
 
 // Check if current page is a flow page
 async function checkFlowPage(): Promise<{ isFlowPage: boolean; envId?: string; flowId?: string }> {
-    // First check if we already have matched request data
-    if (flowEditorState.lastMatchedRequest) {
-        return {
-            isFlowPage: true,
-            envId: flowEditorState.lastMatchedRequest.envId,
-            flowId: flowEditorState.lastMatchedRequest.flowId,
-        };
-    }
-
-    // Try to extract from current tab URL
     return new Promise((resolve) => {
         chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-            if (tabs[0]?.url) {
-                const flowData = extractFlowDataFromTabUrl(tabs[0].url);
+            const activeTab = tabs[0];
+            if (!activeTab?.id) {
+                resolve({ isFlowPage: false });
+                return;
+            }
+
+            // Check if we already have state for this tab
+            const existingState = tabStates.get(activeTab.id);
+            if (existingState?.lastMatchedRequest) {
+                resolve({
+                    isFlowPage: true,
+                    envId: existingState.lastMatchedRequest.envId,
+                    flowId: existingState.lastMatchedRequest.flowId,
+                });
+                return;
+            }
+
+            // Try to extract from current tab URL
+            if (activeTab.url) {
+                const flowData = extractFlowDataFromTabUrl(activeTab.url);
                 if (flowData) {
-                    flowEditorState.lastMatchedRequest = flowData;
-                    flowEditorState.initiatorTabId = tabs[0].id;
+                    const state = getOrCreateTabState(activeTab.id);
+                    state.lastMatchedRequest = flowData;
+                    state.initiatorTabId = activeTab.id;
                     resolve({
                         isFlowPage: true,
                         envId: flowData.envId,
@@ -345,6 +393,7 @@ async function checkFlowPage(): Promise<{ isFlowPage: boolean; envId?: string; f
                     return;
                 }
             }
+
             resolve({ isFlowPage: false });
         });
     });
@@ -408,11 +457,28 @@ const main = async () => {
         ["requestHeaders"]
     );
 
-    // Track when flow editor tab is closed
+    // Track when tabs are closed
     chrome.tabs.onRemoved.addListener((tabId) => {
-        if (flowEditorState.flowEditorTabId === tabId) {
-            debugLog('Flow editor tab closed:', tabId);
-            delete flowEditorState.flowEditorTabId;
+        // If a flow editor tab was closed, clean up the reverse lookup and state reference
+        const initiatorId = editorToInitiator.get(tabId);
+        if (initiatorId !== undefined) {
+            debugLog('Flow editor tab closed:', tabId, 'for initiator:', initiatorId);
+            editorToInitiator.delete(tabId);
+            const state = tabStates.get(initiatorId);
+            if (state) {
+                delete state.flowEditorTabId;
+            }
+            return;
+        }
+
+        // If an initiator (Power Automate) tab was closed, clean up its state entirely
+        const state = tabStates.get(tabId);
+        if (state) {
+            debugLog('Initiator tab closed:', tabId);
+            if (state.flowEditorTabId) {
+                editorToInitiator.delete(state.flowEditorTabId);
+            }
+            tabStates.delete(tabId);
         }
     });
 
