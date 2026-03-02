@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import Settings from '../../components/Settings';
 import { IStorageService } from '../../services/interfaces';
 import { ISettingsModel, defaultSettings } from '../../models';
+import { defaultAnalysisConfig } from '../../config/AnalysisConfig';
 
 // Mock storage service
 const mockStorageService: IStorageService = {
@@ -48,6 +49,7 @@ describe('Settings component', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     (mockStorageService.getSettings as jest.Mock).mockResolvedValue(defaultSettings);
+    (mockStorageService.getAnalysisConfig as jest.Mock).mockResolvedValue(defaultAnalysisConfig);
     (mockStorageService.updateSettings as jest.Mock).mockImplementation(
       (partialSettings: Partial<ISettingsModel>) => 
         Promise.resolve({ ...defaultSettings, ...partialSettings })
@@ -66,10 +68,10 @@ describe('Settings component', () => {
 
   test('renders all settings sections', () => {
     render(<Settings storageService={mockStorageService} />);
-    
-    expect(screen.getByText('🎯 Page Detection')).toBeInTheDocument();
-    expect(screen.getByText('⏱️ Recording Controls')).toBeInTheDocument();
-    expect(screen.getByText('🎨 Interface Customization')).toBeInTheDocument();
+
+    expect(screen.getByText('Page Detection Mode')).toBeInTheDocument();
+    expect(screen.getByText('Favorite Actions Management')).toBeInTheDocument();
+    expect(screen.getByText('Flow Analysis Configuration')).toBeInTheDocument();
   });
 
   test('renders Page Detection Mode setting', () => {
@@ -97,18 +99,20 @@ describe('Settings component', () => {
 
   test('renders recording time setting', () => {
     render(<Settings storageService={mockStorageService} />);
-    
-    const timeField = screen.getByRole('spinbutton');
+
+    const timeField = screen.getByPlaceholderText('No limit');
     expect(timeField).toBeInTheDocument();
-    expect(timeField).toHaveAttribute('placeholder', 'No limit');
+    expect(timeField).toHaveAttribute('type', 'number');
   });
 
   test('renders action search bar setting', () => {
     render(<Settings storageService={mockStorageService} />);
-    
-    const searchBarToggle = screen.getByRole('switch');
-    expect(searchBarToggle).toBeInTheDocument();
-    expect(searchBarToggle).toHaveAttribute('aria-checked', 'true');
+
+    const searchBarText = screen.getByText('Show Action Search Bar');
+    expect(searchBarText).toBeInTheDocument();
+
+    const toggles = screen.getAllByRole('switch');
+    expect(toggles[0]).toHaveAttribute('aria-checked', 'true');
   });
 
   test('loads initial settings from storage', async () => {
@@ -213,30 +217,35 @@ describe('Settings component', () => {
 
   test('updates to automatic detection mode when switching from another mode', async () => {
     // Start with recording page enabled
-    const initialSettings: ISettingsModel = { 
-      ...defaultSettings, 
-      isRecordingPage: true 
+    const initialSettings: ISettingsModel = {
+      ...defaultSettings,
+      isRecordingPage: true
     };
     (mockStorageService.getSettings as jest.Mock).mockResolvedValue(initialSettings);
-    
-    const updatedSettings: ISettingsModel = { 
-      ...defaultSettings, 
+
+    const updatedSettings: ISettingsModel = {
+      ...defaultSettings,
       isRecordingPage: false,
       isClassicPowerAutomatePage: false,
-      isModernPowerAutomatePage: false 
+      isModernPowerAutomatePage: false
     };
     (mockStorageService.updateSettings as jest.Mock).mockResolvedValue(updatedSettings);
-    
+
     render(<Settings storageService={mockStorageService} />);
-    
+
+    // Wait for initial settings to load so recording mode is selected
+    await waitFor(() => {
+      expect(screen.getByRole('radio', { name: 'Recording Page Override' })).toBeChecked();
+    });
+
     const automaticOption = screen.getByRole('radio', { name: 'Automatic Detection' });
     fireEvent.click(automaticOption);
-    
+
     await waitFor(() => {
       expect(mockStorageService.updateSettings).toHaveBeenCalledWith({
         isRecordingPage: false,
-        isModernPowerAutomatePage: false,
-        isClassicPowerAutomatePage: false
+        isClassicPowerAutomatePage: false,
+        isModernPowerAutomatePage: false
       });
     });
   });
@@ -244,12 +253,12 @@ describe('Settings component', () => {
   test('updates maximum recording time setting', async () => {
     const updatedSettings: ISettingsModel = { ...defaultSettings, maximumRecordingTimeMinutes: 30 };
     (mockStorageService.updateSettings as jest.Mock).mockResolvedValue(updatedSettings);
-    
+
     render(<Settings storageService={mockStorageService} />);
-    
-    const timeField = screen.getByRole('spinbutton');
+
+    const timeField = screen.getByPlaceholderText('No limit');
     fireEvent.change(timeField, { target: { value: '30' } });
-    
+
     await waitFor(() => {
       expect(mockStorageService.updateSettings).toHaveBeenCalledWith({ maximumRecordingTimeMinutes: 30 });
     });
@@ -258,12 +267,12 @@ describe('Settings component', () => {
   test('updates show action search bar setting', async () => {
     const updatedSettings: ISettingsModel = { ...defaultSettings, showActionSearchBar: false };
     (mockStorageService.updateSettings as jest.Mock).mockResolvedValue(updatedSettings);
-    
+
     render(<Settings storageService={mockStorageService} />);
-    
-    const toggle = screen.getByRole('switch');
-    fireEvent.click(toggle);
-    
+
+    const toggles = screen.getAllByRole('switch');
+    fireEvent.click(toggles[0]);
+
     await waitFor(() => {
       expect(mockStorageService.updateSettings).toHaveBeenCalledWith({ showActionSearchBar: false });
     });
