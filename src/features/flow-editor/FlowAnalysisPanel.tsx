@@ -97,6 +97,7 @@ export const FlowAnalysisPanel: React.FC<FlowAnalysisPanelProps> = ({
       const svg = generateFlowSvg(analysisResult.actions, analysisResult.trigger);
       diagramRef.current.innerHTML = svg;
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedTab, analysisResult]);
 
   // Generate SVG diagram from actions - proper flow hierarchy
@@ -197,7 +198,6 @@ export const FlowAnalysisPanel: React.FC<FlowAnalysisPanelProps> = ({
     const positions = new Map<string, { x: number; y: number }>();
 
     rows.forEach((row, rowIdx) => {
-      const rowWidth = row.length * nodeWidth + (row.length - 1) * horizontalGap;
       const startX = padding + (row.length > 1 ? 0 : (branchGap - nodeWidth) / 2);
 
       row.forEach((nodeName, colIdx) => {

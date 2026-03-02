@@ -200,6 +200,7 @@ const ActionsList: React.FC<IActionsListProps> = (props) => {
                 iconProps={{ iconName: 'Search' }}
             />
         </div>;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [props.searchTerm, props.onSearchChange])
 
     return <>

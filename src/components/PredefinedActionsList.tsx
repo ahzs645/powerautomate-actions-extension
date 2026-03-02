@@ -212,6 +212,7 @@ const PredefinedActionsList: React.FC<IPredefinedActionsListProps> = (props) => 
                 )}
             </div>
         );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [props.searchTerm, props.onSearchChange, props.onRefresh]);
 
     if (props.isLoading) {

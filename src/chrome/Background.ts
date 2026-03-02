@@ -127,13 +127,13 @@ function extractFlowDataFromTabUrl(url?: string): { envId: string; flowId: strin
     debugLog('Extracting flow data from tab URL:', url);
 
     const envPatterns = [
-        /\/environments\/([a-zA-Z0-9\-]*)\//i,
-        /environment\/([a-zA-Z0-9\-]*)\//i,
-        /\/environment=([a-zA-Z0-9\-]*)/i,
-        /envid=([a-zA-Z0-9\-]*)/i,
-        /[?&]environmentId=([a-zA-Z0-9\-]*)/i,
-        /[?&]env=([a-zA-Z0-9\-]*)/i,
-        /environments%2F([a-zA-Z0-9\-]*)/i,
+        /\/environments\/([a-zA-Z0-9-]*)\//i,
+        /environment\/([a-zA-Z0-9-]*)\//i,
+        /\/environment=([a-zA-Z0-9-]*)/i,
+        /envid=([a-zA-Z0-9-]*)/i,
+        /[?&]environmentId=([a-zA-Z0-9-]*)/i,
+        /[?&]env=([a-zA-Z0-9-]*)/i,
+        /environments%2F([a-zA-Z0-9-]*)/i,
     ];
 
     let envResult: RegExpExecArray | null = null;

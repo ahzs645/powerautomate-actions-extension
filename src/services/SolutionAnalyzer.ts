@@ -190,7 +190,7 @@ export class SolutionAnalyzer {
 
           // Extract name from path
           const filename = filepath.split('/').pop() || filepath;
-          const name = filename.replace('.json', '').replace(/[{}\-]/g, '');
+          const name = filename.replace('.json', '').replace(/[{}-]/g, '');
 
           // Analyze the flow
           let analysis: FlowAnalysisResult | null = null;

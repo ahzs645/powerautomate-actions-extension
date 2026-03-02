@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState, useRef } from 'react';
 import { Stack, Text, Separator, Toggle, TooltipHost, TextField, ChoiceGroup, IChoiceGroupOption, PrimaryButton, DefaultButton, MessageBar, MessageBarType, SpinButton, Label } from '@fluentui/react';
 import { IStorageService } from '../services/interfaces';
 import { ISettingsModel, defaultSettings, IActionModel } from '../models';
-import { IAnalysisConfig, IRatingThresholds, INamingConfig, defaultAnalysisConfig, IAnalysisConfigExport, ANALYSIS_CONFIG_VERSION } from '../config/AnalysisConfig';
+import { IAnalysisConfig, IRatingThresholds, defaultAnalysisConfig, IAnalysisConfigExport, ANALYSIS_CONFIG_VERSION } from '../config/AnalysisConfig';
 
 interface SettingsProps {
   storageService: IStorageService;

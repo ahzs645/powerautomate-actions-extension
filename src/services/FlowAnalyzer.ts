@@ -4,9 +4,6 @@
 import {
   IAnalysisConfig,
   IRatingThresholds,
-  INamingConfig,
-  IScoringConfig,
-  IComplexityRule,
   defaultAnalysisConfig,
   getNamingConventionMap,
   getComplexityMap,

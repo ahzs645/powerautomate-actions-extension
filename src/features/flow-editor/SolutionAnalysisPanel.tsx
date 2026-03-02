@@ -23,7 +23,6 @@ import {
   SolutionFlow,
   SolutionConnection,
   SolutionEnvironmentVariable,
-  SolutionDependency,
   FlowDependencyGraph,
   MissingChildFlow,
 } from '../../services/SolutionAnalyzer';
@@ -377,6 +376,7 @@ export const SolutionAnalysisPanel: React.FC<SolutionAnalysisPanelProps> = ({
 
     while (queue.length > 0) {
       const nextQueue: string[] = [];
+      const currentRow = row;
       let col = 0;
 
       queue.forEach(nodeId => {
@@ -384,7 +384,7 @@ export const SolutionAnalysisPanel: React.FC<SolutionAnalysisPanelProps> = ({
           visited.add(nodeId);
           nodePositions.set(nodeId, {
             x: padding + col * (nodeWidth + horizontalGap),
-            y: padding + row * (nodeHeight + verticalGap),
+            y: padding + currentRow * (nodeHeight + verticalGap),
           });
           col++;
 

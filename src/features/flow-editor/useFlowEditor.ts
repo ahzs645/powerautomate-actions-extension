@@ -47,6 +47,7 @@ export const useFlowEditor = () => {
         children: msg,
       },
     ]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messageBar.setMessages]);
 
   useEffect(() => {
@@ -57,6 +58,7 @@ export const useFlowEditor = () => {
         MessageBarType.error
       );
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [envId, flowId]); // Removed addMessage from deps to prevent loop
 
   const [data, setData] = useState<{
@@ -142,6 +144,7 @@ export const useFlowEditor = () => {
         debugLog('Waiting for API to be ready...');
       }
     })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [envId, flowId, api.isApiReady]); // Removed addMessage and editorSchema to prevent loop
 
   const saveDefinition = async (
