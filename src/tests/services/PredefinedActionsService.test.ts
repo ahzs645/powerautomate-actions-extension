@@ -50,7 +50,8 @@ describe('PredefinedActionsService', () => {
           body: null,
           icon: 'https://example.com/icon.png',
           actionJson: '{}',
-          isSelected: false
+          isSelected: false,
+          isFavorite: false
         }
       ];
 
@@ -91,7 +92,8 @@ describe('PredefinedActionsService', () => {
           body: null,
           icon: 'https://example.com/icon.png',
           actionJson: '{}',
-          isSelected: false
+          isSelected: false,
+          isFavorite: false
         }
       ];
 

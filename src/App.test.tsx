@@ -190,20 +190,20 @@ describe('App', () => {
       hasActionsOnPageToCopy={false}
       actions={[]}
       myClipboardActions={[]}
-      currentMode={Mode.Settings} 
+      currentMode={Mode.Settings}
       myCopiedActionsV3={[]}
       favoriteActions={[]}
       />);
 
-    const settingsTab = screen.getByText('Settings');
-    expect(settingsTab).toBeInTheDocument();
+    const settingsButton = screen.getByTitle('Settings');
+    expect(settingsButton).toBeInTheDocument();
 
     act(() => {
-      settingsTab.click();
+      settingsButton.click();
     });
 
     await waitFor(() => {
-      const settingsContent = screen.getByText('SharePoint Page Override');
+      const settingsContent = screen.getByText('Extension Settings');
       expect(settingsContent).toBeInTheDocument();
     });
   });
