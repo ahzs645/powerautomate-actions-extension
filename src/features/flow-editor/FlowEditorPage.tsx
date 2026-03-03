@@ -44,6 +44,18 @@ export const FlowEditorPage: React.FC = () => {
     chrome.runtime.sendMessage({ type: 'refresh' });
   };
 
+  const downloadJson = () => {
+    const json = editor?.getValue() || definition;
+    if (!json) return;
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${name || 'flow'}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const commandBarItems = useMemo(
     () =>
       [
@@ -102,6 +114,15 @@ export const FlowEditorPage: React.FC = () => {
           onClick: () => setSolutionPanelOpen(true),
         },
         {
+          key: 'download',
+          text: 'Download JSON',
+          iconProps: {
+            iconName: 'Download',
+          },
+          disabled: !editor || !definition,
+          onClick: downloadJson,
+        },
+        {
           key: 'refresh',
           text: 'Refresh Token',
           iconProps: {
@@ -110,6 +131,7 @@ export const FlowEditorPage: React.FC = () => {
           onClick: refreshToken,
         },
       ] as ICommandBarItemProps[],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [name, editor, definition, saveDefinition, validate, environment]
   );
 
