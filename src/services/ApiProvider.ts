@@ -6,6 +6,7 @@ export interface IApiProvider {
   patch(url: string, data: any): Promise<any>;
   post(url: string, data: any): Promise<any>;
   isApiReady: boolean;
+  isPowerPlatformApi: boolean;
 }
 
 interface IApiDetails {
@@ -43,10 +44,14 @@ export const ApiProviderContextRoot = (): IApiProvider => {
       }
 
       const endpointUrl = apiDetails.apiUrl + url;
+      // Power Platform environment APIs use api-version=1;
+      // legacy powerapps/flow APIs use api-version=2016-11-01
+      const isPP = apiDetails.apiUrl?.includes('.api.powerplatform.com');
+      const apiVersion = isPP ? '1' : '2016-11-01';
       const fullUrl = endpointUrl +
         (endpointUrl.includes('?')
-          ? '&api-version=2016-11-01'
-          : '?api-version=2016-11-01');
+          ? `&api-version=${apiVersion}`
+          : `?api-version=${apiVersion}`);
 
       debugLog(`${method} request to:`, fullUrl);
       if (data) {
@@ -106,13 +111,14 @@ export const ApiProviderContextRoot = (): IApiProvider => {
         }
 
         if (response.status >= 500) {
-          debugError('Server error:', response.status);
+          debugError('Server error:', response.status, body);
           if (retryCount < maxRetries) {
             debugLog(`Server error, retrying in ${retryDelay}ms (attempt ${retryCount + 1}/${maxRetries})`);
             await new Promise(resolve => setTimeout(resolve, retryDelay * (retryCount + 1)));
             return http(url, method, data, retryCount + 1);
           }
-          throw new Error('Server error. Please try again later.');
+          const serverMsg = body?.error?.message || body?.message || '';
+          throw new Error(`Server error (${response.status})${serverMsg ? ': ' + serverMsg : '. Please try again later.'}`);
         }
 
         const errorMessage = body?.error?.message || body?.message || `HTTP ${response.status}: ${response.statusText}`;
@@ -149,20 +155,19 @@ export const ApiProviderContextRoot = (): IApiProvider => {
 
   useEffect(() => {
     const cb = (action: FlowEditorActions, sender: any, sendResponse: () => void) => {
-      debugLog('Received action:', action.type);
-
-      switch (action.type) {
-        case 'token-changed':
-          debugLog('Token updated, API ready:', Boolean(action.apiUrl && action.token));
-          setApiDetails({
-            apiUrl: action.apiUrl,
-            token: action.token,
-            isReady: Boolean(action.apiUrl && action.token),
-          });
-          break;
-        default:
-          break;
+      // Only handle token-changed messages; ignore others
+      // (check-flow-page, open-flow-editor, etc. are meant for the background)
+      if (action.type !== 'token-changed') {
+        sendResponse();
+        return;
       }
+
+      debugLog('Token updated, API ready:', Boolean(action.apiUrl && action.token));
+      setApiDetails({
+        apiUrl: action.apiUrl,
+        token: action.token,
+        isReady: Boolean(action.apiUrl && action.token),
+      });
       sendResponse();
     };
 
@@ -187,6 +192,7 @@ export const ApiProviderContextRoot = (): IApiProvider => {
     patch: (url: string, data: any) => http(url, 'PATCH', data),
     post: (url: string, data: any) => http(url, 'POST', data),
     isApiReady: apiDetails.isReady,
+    isPowerPlatformApi: Boolean(apiDetails.apiUrl?.includes('.api.powerplatform.com')),
   };
 };
 

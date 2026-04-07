@@ -85,7 +85,7 @@ export const useFlowEditor = () => {
           debugLog('Fetching flow data...');
           setIsLoading(true);
 
-          const flowUrl = getFlowUrl(envId, flowId);
+          const flowUrl = getFlowUrl(envId, flowId, api.isPowerPlatformApi);
           debugLog('Flow URL:', flowUrl);
 
           const flow = await api.get(flowUrl);
@@ -195,7 +195,6 @@ export const useFlowEditor = () => {
       const savePayload = {
         properties: {
           displayName: name.trim(),
-          environment: environment,
           definition: parsedData.definition,
           connectionReferences: parsedData.connectionReferences,
         },
@@ -205,10 +204,9 @@ export const useFlowEditor = () => {
         displayName: savePayload.properties.displayName,
         hasDefinition: !!savePayload.properties.definition,
         hasConnectionReferences: !!savePayload.properties.connectionReferences,
-        hasEnvironment: !!savePayload.properties.environment
       });
 
-      const response = await api.patch(getFlowUrl(envId, flowId), savePayload);
+      const response = await api.patch(getFlowUrl(envId, flowId, api.isPowerPlatformApi), savePayload);
 
       debugLog('Save response received');
 
@@ -281,12 +279,12 @@ export const useFlowEditor = () => {
       debugLog('Validation payload prepared');
 
       const [errors, warnings] = await Promise.all([
-        api.post(`${getFlowUrl(envId, flowId)}/checkFlowErrors`, validationPayload)
+        api.post(`${getFlowUrl(envId, flowId, api.isPowerPlatformApi)}/checkFlowErrors`, validationPayload)
           .catch(error => {
             debugError('Error check failed:', error);
             return [];
           }),
-        api.post(`${getFlowUrl(envId, flowId)}/checkFlowWarnings`, validationPayload)
+        api.post(`${getFlowUrl(envId, flowId, api.isPowerPlatformApi)}/checkFlowWarnings`, validationPayload)
           .catch(error => {
             debugError('Warning check failed:', error);
             return [];
@@ -335,9 +333,15 @@ export const useFlowEditor = () => {
   };
 };
 
-function getFlowUrl(envId: string | null, flowId: string | null) {
+function getFlowUrl(envId: string | null, flowId: string | null, isPowerPlatform: boolean) {
   if (!envId || !flowId) {
     throw new Error('Missing environment ID or flow ID');
   }
-  return `providers/Microsoft.ProcessSimple/environments/${envId}/flows/${flowId}`;
+  // Power Platform environment APIs use /powerautomate/flows/{flowId}
+  // Legacy APIs use /providers/Microsoft.ProcessSimple/environments/{envId}/flows/{flowId}
+  // draftFlow=true is required for solution-aware flows with unpublished changes
+  if (isPowerPlatform) {
+    return `powerautomate/flows/${flowId}?draftFlow=true`;
+  }
+  return `providers/Microsoft.ProcessSimple/environments/${envId}/flows/${flowId}?draftFlow=true`;
 }

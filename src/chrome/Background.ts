@@ -15,7 +15,8 @@ interface FlowEditorState {
     tokenExpires?: Date;
     lastMatchedRequest?: { envId: string; flowId: string } | null;
     initiatorTabId?: number;
-    flowEditorTabId?: number;
+    flowEditorTabIds: Set<number>;
+    lastSentToken?: string; // Track what was last sent to editors to avoid noisy broadcasts
 }
 
 // Per-tab state: keyed by initiator (Power Automate) tab ID
@@ -23,9 +24,64 @@ const tabStates = new Map<number, FlowEditorState>();
 // Reverse lookup: flow editor tab ID → initiator tab ID
 const editorToInitiator = new Map<number, number>();
 
+// Persist critical state to chrome.storage.session so it survives
+// MV3 service worker restarts (worker goes idle after ~30s)
+const SESSION_KEY = 'pa_toolkit_tab_states';
+
+interface SerializedState {
+    tabStates: Record<string, Omit<FlowEditorState, 'tokenExpires' | 'flowEditorTabIds'> & { tokenExpiresMs?: number; flowEditorTabIds?: number[] }>;
+    editorToInitiator: Record<string, number>;
+}
+
+async function persistState() {
+    const serialized: SerializedState = {
+        tabStates: {},
+        editorToInitiator: {},
+    };
+    tabStates.forEach((state, tabId) => {
+        const { tokenExpires, flowEditorTabIds, ...rest } = state;
+        serialized.tabStates[tabId.toString()] = {
+            ...rest,
+            tokenExpiresMs: tokenExpires?.getTime(),
+            flowEditorTabIds: Array.from(flowEditorTabIds),
+        };
+    });
+    editorToInitiator.forEach((initiatorId, editorId) => {
+        serialized.editorToInitiator[editorId.toString()] = initiatorId;
+    });
+    try {
+        await chrome.storage.session.set({ [SESSION_KEY]: serialized });
+    } catch {
+        // storage.session may not be available in all contexts
+    }
+}
+
+async function restoreState() {
+    try {
+        const result = await chrome.storage.session.get(SESSION_KEY);
+        const data = result[SESSION_KEY] as SerializedState | undefined;
+        if (!data) return;
+
+        Object.entries(data.tabStates).forEach(([tabId, state]) => {
+            const { tokenExpiresMs, flowEditorTabIds: editorIds, ...rest } = state;
+            tabStates.set(Number(tabId), {
+                ...rest,
+                tokenExpires: tokenExpiresMs ? new Date(tokenExpiresMs) : undefined,
+                flowEditorTabIds: new Set(editorIds || []),
+            });
+        });
+        Object.entries(data.editorToInitiator).forEach(([editorId, initiatorId]) => {
+            editorToInitiator.set(Number(editorId), initiatorId);
+        });
+        debugLog('Restored state from session storage:', tabStates.size, 'tabs');
+    } catch {
+        // storage.session may not be available
+    }
+}
+
 function getOrCreateTabState(tabId: number): FlowEditorState {
     if (!tabStates.has(tabId)) {
-        tabStates.set(tabId, {});
+        tabStates.set(tabId, { flowEditorTabIds: new Set() });
     }
     return tabStates.get(tabId)!;
 }
@@ -68,7 +124,7 @@ function showNotification(message: string) {
     });
 }
 
-function sendTokenChanged(state: FlowEditorState) {
+function sendTokenChanged(state: FlowEditorState, force?: boolean) {
     if (!state.token || !state.apiUrl) {
         debugError('Cannot send token - missing token or apiUrl');
         return;
@@ -80,7 +136,14 @@ function sendTokenChanged(state: FlowEditorState) {
         return;
     }
 
+    // Skip if we already sent this exact token (avoids noisy broadcasts
+    // when Power Automate cycles between multiple tokens)
+    if (!force && state.lastSentToken === state.token) {
+        return;
+    }
+
     debugLog('Sending token changed message');
+    state.lastSentToken = state.token;
     sendMessageToFlowEditorTab(state, {
         type: "token-changed",
         token: state.token,
@@ -104,18 +167,67 @@ function refreshInitiator(state: FlowEditorState) {
 }
 
 function sendMessageToFlowEditorTab(state: FlowEditorState, action: FlowEditorActions) {
-    if (state.flowEditorTabId) {
-        debugLog('Sending message to flow editor tab:', action.type, 'tab:', state.flowEditorTabId);
-        chrome.tabs.sendMessage(state.flowEditorTabId, action, (response) => {
+    if (state.flowEditorTabIds.size === 0) {
+        debugLog('No flow editor tabs to send message to');
+        return;
+    }
+
+    debugLog('Sending message to', state.flowEditorTabIds.size, 'flow editor tab(s):', action.type);
+    Array.from(state.flowEditorTabIds).forEach((tabId) => {
+        chrome.tabs.sendMessage(tabId, action, (response) => {
             if (chrome.runtime.lastError) {
-                debugError('Failed to send message to flow editor tab:', chrome.runtime.lastError);
+                debugError('Failed to send message to flow editor tab:', tabId, chrome.runtime.lastError);
+                // Tab may have been closed without triggering onRemoved; clean up
+                state.flowEditorTabIds.delete(tabId);
+                editorToInitiator.delete(tabId);
             } else {
-                debugLog('Message sent successfully');
+                debugLog('Message sent to tab:', tabId);
             }
         });
-    } else {
-        debugLog('No flow editor tab to send message to');
+    });
+}
+
+// Check if a URL belongs to a Power Automate / Flow API host (not Dynamics CRM)
+function isFlowApiHost(url: string): boolean {
+    try {
+        const hostname = new URL(url).hostname.toLowerCase();
+        return hostname.includes('api.flow.microsoft.com') ||
+               hostname.includes('api.powerautomate.com') ||
+               hostname.includes('api.powerapps.com') ||
+               hostname.includes('api.powerapps.us') ||
+               hostname.includes('api.powerplatform.com');
+    } catch {
+        return false;
     }
+}
+
+// Check if a URL is an environment-scoped Power Platform endpoint
+// e.g. https://6e2f407e...f6.environment.api.powerplatform.com/
+// These serve flow data at /powerautomate/flows/{flowId}
+function isEnvironmentPowerPlatformUrl(url: string): boolean {
+    try {
+        return new URL(url).hostname.toLowerCase().includes('.environment.api.powerplatform.com');
+    } catch {
+        return false;
+    }
+}
+
+// Determine if a new apiUrl should replace the current one.
+// Priority: environment-scoped powerplatform > legacy flow APIs > tenant-scoped powerplatform
+function shouldUpdateApiUrl(currentApiUrl: string | undefined, newUrl: string): boolean {
+    if (!currentApiUrl) return true;
+
+    const currentIsEnvPP = isEnvironmentPowerPlatformUrl(currentApiUrl);
+    const newIsEnvPP = isEnvironmentPowerPlatformUrl(newUrl);
+
+    // Don't downgrade from environment-scoped to tenant-scoped
+    if (currentIsEnvPP && !newIsEnvPP) return false;
+
+    // Upgrade from anything to environment-scoped
+    if (newIsEnvPP) return true;
+
+    // Otherwise allow the update (legacy URL changes)
+    return true;
 }
 
 // URL pattern matching for flow data extraction
@@ -210,14 +322,19 @@ function listenFlowApiRequests(details: chrome.webRequest.WebRequestHeadersDetai
         return;
     }
 
-    debugLog('Intercepted API request from tab:', details.tabId, details.url);
-
     const state = getOrCreateTabState(details.tabId);
 
     const flowData = extractFlowDataFromApiUrl(details.url);
     if (flowData) {
         state.lastMatchedRequest = flowData;
         state.initiatorTabId = details.tabId;
+    }
+
+    // Only process tokens from Flow/PowerApps/PowerPlatform API hosts.
+    // Dynamics CRM tokens have different audiences and cause auth failures
+    // when used against Flow/PowerPlatform APIs.
+    if (!isFlowApiHost(details.url)) {
+        return;
     }
 
     const authHeader = details.requestHeaders?.find(
@@ -227,12 +344,37 @@ function listenFlowApiRequests(details: chrome.webRequest.WebRequestHeadersDetai
     const token = authHeader?.value;
 
     if (!token) {
-        debugLog('No authorization token found in request');
+        return;
+    }
+
+    const url = new URL(details.url);
+    const candidateUrl = `${url.protocol}//${url.hostname}/`;
+
+    // Update apiUrl if this host is preferred (environment-scoped > legacy)
+    if (shouldUpdateApiUrl(state.apiUrl, candidateUrl)) {
+        const previousApiUrl = state.apiUrl;
+        if (previousApiUrl !== candidateUrl) {
+            state.apiUrl = candidateUrl;
+            debugLog('API URL set to:', state.apiUrl);
+
+            // Clear the stored token so we don't use one with the wrong audience
+            if (previousApiUrl) {
+                state.token = undefined;
+                debugLog('Cleared token after apiUrl change (was for:', previousApiUrl + ')');
+            }
+        }
+    }
+
+    // Only store tokens from the same host as apiUrl to prevent
+    // audience mismatches between different API services.
+    const isFromApiUrlHost = candidateUrl === state.apiUrl;
+    if (!isFromApiUrlHost) {
+        debugLog('Skipping token from non-preferred host:', candidateUrl, '(preferred:', state.apiUrl + ')');
         return;
     }
 
     if (state.token !== token) {
-        debugLog('New token detected for tab:', details.tabId);
+        debugLog('New token from preferred host:', candidateUrl, 'for tab:', details.tabId);
         state.token = token;
 
         try {
@@ -240,14 +382,13 @@ function listenFlowApiRequests(details: chrome.webRequest.WebRequestHeadersDetai
             state.tokenExpires = new Date(decodedToken.exp * 1000);
             debugLog('Token expires at:', state.tokenExpires);
 
-            const url = new URL(details.url);
-            state.apiUrl = `${url.protocol}//${url.hostname}/`;
-            debugLog('API URL set to:', state.apiUrl);
-
-            // Only push token to the editor if one is open for this tab
-            if (state.flowEditorTabId) {
+            // Push token to any open editor tabs for this initiator
+            if (state.flowEditorTabIds.size > 0) {
                 sendTokenChanged(state);
             }
+
+            // Persist state so it survives service worker restarts
+            persistState();
         } catch (error) {
             debugError('Failed to decode token:', error);
             return;
@@ -302,22 +443,20 @@ function openFlowEditor(tab: chrome.tabs.Tab) {
 
     const state = getOrCreateTabState(tab.id);
 
+    // Always re-extract flow data from the current tab URL so that
+    // navigating to a different flow opens the correct one.
+    const currentFlowData = tab.url ? extractFlowDataFromTabUrl(tab.url) : null;
+    if (currentFlowData) {
+        state.lastMatchedRequest = currentFlowData;
+        state.initiatorTabId = tab.id;
+    }
+
     debugLog('Opening flow editor for tab:', tab.id, {
-        hasLastMatchedRequest: !!state.lastMatchedRequest,
+        flowData: state.lastMatchedRequest,
         hasToken: !!state.token,
         tokenExpired: isTokenExpired(state),
         currentTabUrl: tab.url
     });
-
-    // Try to extract flow data from current tab URL if not available
-    if (!state.lastMatchedRequest && tab.url) {
-        debugLog('No matched request found, trying to extract from current tab URL');
-        state.lastMatchedRequest = extractFlowDataFromTabUrl(tab.url);
-        if (state.lastMatchedRequest) {
-            state.initiatorTabId = tab.id;
-            debugLog('Flow data extracted from current tab:', state.lastMatchedRequest);
-        }
-    }
 
     if (!state.lastMatchedRequest) {
         debugError('No flow data found. Make sure you are on a Power Automate flow page.');
@@ -349,73 +488,86 @@ function openFlowEditor(tab: chrome.tabs.Tab) {
             showNotification('Failed to open flow editor. Please try again.');
             return;
         }
-        state.flowEditorTabId = appTab.id;
+        state.flowEditorTabIds.add(appTab.id!);
         editorToInitiator.set(appTab.id!, tab.id!);
-        debugLog('Flow editor tab created with ID:', appTab.id, 'for initiator tab:', tab.id);
+        debugLog('Flow editor tab created with ID:', appTab.id, 'for initiator tab:', tab.id,
+            '(total editor tabs:', state.flowEditorTabIds.size + ')');
+        persistState();
     });
 
     return { success: true };
 }
 
-// Check if current page is a flow page
-async function checkFlowPage(): Promise<{ isFlowPage: boolean; envId?: string; flowId?: string }> {
-    return new Promise((resolve) => {
-        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-            const activeTab = tabs[0];
-            if (!activeTab?.id) {
-                resolve({ isFlowPage: false });
-                return;
-            }
-
-            // Check if we already have state for this tab
-            const existingState = tabStates.get(activeTab.id);
-            if (existingState?.lastMatchedRequest) {
-                resolve({
-                    isFlowPage: true,
-                    envId: existingState.lastMatchedRequest.envId,
-                    flowId: existingState.lastMatchedRequest.flowId,
-                });
-                return;
-            }
-
-            // Try to extract from current tab URL
-            if (activeTab.url) {
-                const flowData = extractFlowDataFromTabUrl(activeTab.url);
-                if (flowData) {
-                    const state = getOrCreateTabState(activeTab.id);
-                    state.lastMatchedRequest = flowData;
-                    state.initiatorTabId = activeTab.id;
-                    resolve({
-                        isFlowPage: true,
-                        envId: flowData.envId,
-                        flowId: flowData.flowId,
-                    });
-                    return;
-                }
-            }
-
-            resolve({ isFlowPage: false });
-        });
+// Check if a tab is a flow page. Uses the provided tab if available (from sender.tab),
+// otherwise falls back to querying the active tab.
+async function checkFlowPage(senderTab?: chrome.tabs.Tab): Promise<{ isFlowPage: boolean; envId?: string; flowId?: string }> {
+    const tab = senderTab || await new Promise<chrome.tabs.Tab | undefined>((resolve) => {
+        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => resolve(tabs[0]));
     });
+
+    if (!tab?.id) {
+        return { isFlowPage: false };
+    }
+
+    // Always extract from the current tab URL to handle SPA navigation
+    // (user may have navigated to a different flow without a full page reload)
+    if (tab.url) {
+        const flowData = extractFlowDataFromTabUrl(tab.url);
+        if (flowData) {
+            const state = getOrCreateTabState(tab.id);
+            state.lastMatchedRequest = flowData;
+            state.initiatorTabId = tab.id;
+            return {
+                isFlowPage: true,
+                envId: flowData.envId,
+                flowId: flowData.flowId,
+            };
+        }
+    }
+
+    // Fall back to cached state if URL extraction failed
+    const existingState = tabStates.get(tab.id);
+    if (existingState?.lastMatchedRequest) {
+        return {
+            isFlowPage: true,
+            envId: existingState.lastMatchedRequest.envId,
+            flowId: existingState.lastMatchedRequest.flowId,
+        };
+    }
+
+    return { isFlowPage: false };
 }
 
 // Main initialization
 const main = async () => {
+    // Restore state from session storage (survives service worker restarts)
+    await restoreState();
+
     // Existing recording functionality
     chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         // Handle flow editor messages
         if (message.type === 'app-loaded' || message.type === 'refresh' || message.type === 'open-flow-editor' || message.type === 'check-flow-page') {
             if (message.type === 'open-flow-editor') {
-                chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-                    if (tabs[0]) {
-                        const result = openFlowEditor(tabs[0]);
-                        sendResponse(result);
+                // Use sender.tab when message comes from a content script (bridge),
+                // fall back to querying the active tab (popup).
+                const getTab = sender.tab
+                    ? Promise.resolve(sender.tab)
+                    : new Promise<chrome.tabs.Tab | undefined>((resolve) => {
+                        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => resolve(tabs[0]));
+                    });
+
+                getTab.then((tab) => {
+                    if (tab) {
+                        sendResponse(openFlowEditor(tab));
+                    } else {
+                        sendResponse({ success: false, error: 'No active tab found' });
                     }
                 });
                 return true; // Keep channel open for async response
             }
             if (message.type === 'check-flow-page') {
-                checkFlowPage().then(result => sendResponse(result));
+                // Use sender.tab when available (content script bridge)
+                checkFlowPage(sender.tab).then(result => sendResponse(result));
                 return true; // Keep channel open for async response
             }
             return handleFlowEditorMessage(message, sender, sendResponse);
@@ -451,7 +603,10 @@ const main = async () => {
                 "https://switzerland.api.powerapps.com/*",
                 "https://usgov.api.powerapps.us/*",
                 "https://usgovhigh.api.powerapps.us/*",
-                "https://dod.api.powerapps.us/*"
+                "https://dod.api.powerapps.us/*",
+                // Power Platform and Dynamics CRM endpoints
+                "https://*.api.powerplatform.com/*",
+                "https://*.dynamics.com/*"
             ],
         },
         ["requestHeaders"]
@@ -459,14 +614,15 @@ const main = async () => {
 
     // Track when tabs are closed
     chrome.tabs.onRemoved.addListener((tabId) => {
-        // If a flow editor tab was closed, clean up the reverse lookup and state reference
+        // If a flow editor tab was closed, clean up the reverse lookup and remove from set
         const initiatorId = editorToInitiator.get(tabId);
         if (initiatorId !== undefined) {
             debugLog('Flow editor tab closed:', tabId, 'for initiator:', initiatorId);
             editorToInitiator.delete(tabId);
             const state = tabStates.get(initiatorId);
             if (state) {
-                delete state.flowEditorTabId;
+                state.flowEditorTabIds.delete(tabId);
+                debugLog('Remaining editor tabs for initiator:', state.flowEditorTabIds.size);
             }
             return;
         }
@@ -474,10 +630,10 @@ const main = async () => {
         // If an initiator (Power Automate) tab was closed, clean up its state entirely
         const state = tabStates.get(tabId);
         if (state) {
-            debugLog('Initiator tab closed:', tabId);
-            if (state.flowEditorTabId) {
-                editorToInitiator.delete(state.flowEditorTabId);
-            }
+            debugLog('Initiator tab closed:', tabId, 'with', state.flowEditorTabIds.size, 'editor tab(s)');
+            Array.from(state.flowEditorTabIds).forEach((editorTabId) => {
+                editorToInitiator.delete(editorTabId);
+            });
             tabStates.delete(tabId);
         }
     });

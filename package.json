@@ -1,6 +1,6 @@
 {
   "name": "power-automate-toolkit",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "private": true,
   "author": {
     "name": "Michał Kornet",
@@ -37,6 +37,7 @@
     "start": "react-scripts start",
     "build": "craco build",
     "test": "react-scripts test --coverage",
+    "test:e2e": "npx playwright test",
     "eject": "react-scripts eject"
   },
   "eslintConfig": {
@@ -58,6 +59,7 @@
     ]
   },
   "devDependencies": {
+    "@playwright/test": "^1.59.1",
     "@types/chrome": "^0.0.233",
     "monaco-editor-webpack-plugin": "^7.0.1",
     "path-browserify": "^1.0.1",
