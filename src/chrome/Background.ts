@@ -421,7 +421,7 @@ function handleFlowEditorMessage(
         case 'app-loaded':
             debugLog('Flow editor app loaded, sending token');
             sendResponse();
-            sendTokenChanged(state);
+            sendTokenChanged(state, true); // Force send for newly loaded editor
             return true;
         case 'refresh':
             debugLog('Refresh requested');
