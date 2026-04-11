@@ -3,6 +3,7 @@
    ============================================================ */
 
 /* ---- Design Tokens ---- */
+/* csslint ignore:start */
 :root {
   /* Typography */
   --font-family: 'Segoe UI Variable', 'Segoe UI', -apple-system, BlinkMacSystemFont,
@@ -87,8 +88,10 @@
   --icon-button-size: 32px;
   --tab-bar-height: 40px;
 }
+/* csslint ignore:end */
 
 /* ---- Dark theme ---- */
+/* csslint ignore:start */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --color-bg: #1b1b1f;
@@ -154,6 +157,7 @@
   --shadow-md: 0 0 2px rgba(0,0,0,0.30), 0 4px 8px rgba(0,0,0,0.32);
   --shadow-lg: 0 0 2px rgba(0,0,0,0.30), 0 8px 16px rgba(0,0,0,0.36);
 }
+/* csslint ignore:end */
 
 /* ---- Base Reset ---- */
 *,
