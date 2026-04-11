@@ -32,6 +32,7 @@ export const FlowEditorPage: React.FC = () => {
     definition,
     isLoading,
     saveDefinition,
+    publishDefinition,
     validate,
     messages,
     onDismissed,
@@ -72,6 +73,21 @@ export const FlowEditorPage: React.FC = () => {
           disabled: !editor || !definition,
           onClick: async () => {
             const savedDefinition = await saveDefinition(name, environment, editor.getValue());
+
+            if (savedDefinition) {
+              editor.setValue(savedDefinition);
+            }
+          },
+        },
+        {
+          key: 'publish',
+          text: 'Publish',
+          iconProps: {
+            iconName: 'PublishContent',
+          },
+          disabled: !editor || !definition,
+          onClick: async () => {
+            const savedDefinition = await publishDefinition(name, environment, editor.getValue());
 
             if (savedDefinition) {
               editor.setValue(savedDefinition);
@@ -132,7 +148,7 @@ export const FlowEditorPage: React.FC = () => {
         },
       ] as ICommandBarItemProps[],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [name, editor, definition, saveDefinition, validate, environment]
+    [name, editor, definition, saveDefinition, publishDefinition, validate, environment]
   );
 
   return (

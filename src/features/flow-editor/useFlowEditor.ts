@@ -321,6 +321,43 @@ export const useFlowEditor = () => {
     }
   };
 
+  const publishDefinition = async (
+    name: string,
+    environment: any,
+    definition: string
+  ) => {
+    // Save first, then publish
+    const savedDefinition = await saveDefinition(name, environment, definition);
+    if (!savedDefinition) {
+      return null; // Save failed, error already shown
+    }
+
+    try {
+      debugLog('Publishing flow...');
+      setIsLoading(true);
+
+      const publishUrl = getFlowPublishUrl(envId, flowId, api.isPowerPlatformApi);
+      debugLog('Publish URL:', publishUrl);
+
+      await api.post(publishUrl, {});
+
+      debugLog('Flow published successfully');
+      addMessage(`Flow "${name}" saved and published successfully.`);
+
+      return savedDefinition;
+    } catch (error) {
+      debugError('Error publishing flow:', error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      addMessage(
+        `Flow saved but publish failed: ${errorMessage}`,
+        MessageBarType.error
+      );
+      return savedDefinition; // Return saved definition even if publish fails
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   return {
     isLoading,
     validationPaneIsOpen,
@@ -329,6 +366,7 @@ export const useFlowEditor = () => {
     ...messageBar,
     ...data,
     saveDefinition,
+    publishDefinition,
     validate,
   };
 };
@@ -344,4 +382,14 @@ function getFlowUrl(envId: string | null, flowId: string | null, isPowerPlatform
     return `powerautomate/flows/${flowId}?draftFlow=true`;
   }
   return `providers/Microsoft.ProcessSimple/environments/${envId}/flows/${flowId}?draftFlow=true`;
+}
+
+function getFlowPublishUrl(envId: string | null, flowId: string | null, isPowerPlatform: boolean) {
+  if (!envId || !flowId) {
+    throw new Error('Missing environment ID or flow ID');
+  }
+  if (isPowerPlatform) {
+    return `powerautomate/flows/${flowId}/publish`;
+  }
+  return `providers/Microsoft.ProcessSimple/environments/${envId}/flows/${flowId}/publish`;
 }
