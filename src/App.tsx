@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import './App.css';
 import { ActionType, IDataChromeMessage, AppElement, ICommunicationChromeMessage, IInitialState, Mode } from './models';
 import { IActionModel } from './models/IActionModel';
-import { ISettingsModel } from './models/ISettingsModel';
+import { ISettingsModel, ThemeMode } from './models/ISettingsModel';
 import { StorageService } from './services/StorageService';
 import { ExtensionCommunicationService, PredefinedActionsService } from './services';
 import { Icon, MessageBar, MessageBarType, Pivot, PivotItem } from '@fluentui/react';
@@ -36,6 +36,27 @@ function App(initialState?: IInitialState | undefined) {
   const recordingTimerRef = useRef<NodeJS.Timeout | null>(null);
   const countdownTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [isFlowPage, setIsFlowPage] = useState<boolean>(false);
+  const [activeTheme, setActiveTheme] = useState<ThemeMode>('system');
+
+  const applyTheme = useCallback((mode: ThemeMode) => {
+    setActiveTheme(mode);
+    if (mode === 'system') {
+      delete document.documentElement.dataset.theme;
+    } else {
+      document.documentElement.dataset.theme = mode;
+    }
+  }, []);
+
+  const toggleTheme = useCallback(async () => {
+    const prefersDark = typeof window.matchMedia === 'function'
+      && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const resolvedCurrent = activeTheme === 'system'
+      ? (prefersDark ? 'dark' : 'light')
+      : activeTheme;
+    const next: ThemeMode = resolvedCurrent === 'dark' ? 'light' : 'dark';
+    applyTheme(next);
+    await storageService.updateSettings({ theme: next });
+  }, [activeTheme, applyTheme, storageService]);
 
   const listenToMessage = (message: ICommunicationChromeMessage, sender: chrome.runtime.MessageSender, sendResponse: (response?: any) => void) => {
     if (message.to !== AppElement.ReactApp) { return console.log('Incorrect message destination'); }
@@ -233,6 +254,9 @@ function App(initialState?: IInitialState | undefined) {
     const settings = await storageService.getSettings();
     setSettings(settings);
 
+    // Apply stored theme
+    applyTheme(settings.theme || 'system');
+
     getRecordingPageSetting(settings.isRecordingPage ?? null);
     getClassicPASetting(settings.isClassicPowerAutomatePage ?? null);
     getNewPASetting(settings.isModernPowerAutomatePage ?? null);
@@ -287,7 +311,7 @@ function App(initialState?: IInitialState | undefined) {
     });
 
     chrome.runtime.onMessage.addListener(listenToMessage);
-  }, [communicationService, storageService, getRecordingPageSetting, getClassicPASetting, getNewPASetting, startRecordingTimer, stopRecordingTimer, loadPredefinedActions, checkFlowPage]);
+  }, [communicationService, storageService, getRecordingPageSetting, getClassicPASetting, getNewPASetting, startRecordingTimer, stopRecordingTimer, loadPredefinedActions, checkFlowPage, applyTheme]);
 
   useEffect(() => {
     initData();
@@ -569,10 +593,15 @@ function App(initialState?: IInitialState | undefined) {
     getRecordingPageSetting(newSettings.isRecordingPage ?? null);
     getClassicPASetting(newSettings.isClassicPowerAutomatePage ?? null);
     getNewPASetting(newSettings.isModernPowerAutomatePage ?? null);
-    
+
+    // Sync theme if changed from settings
+    if (newSettings.theme) {
+      applyTheme(newSettings.theme);
+    }
+
     // Handle predefined actions settings change
     handleSettingsChange(newSettings);
-  }, [getRecordingPageSetting, getClassicPASetting, getNewPASetting, handleSettingsChange]);
+  }, [getRecordingPageSetting, getClassicPASetting, getNewPASetting, handleSettingsChange, applyTheme]);
 
   const renderSettingsButton = useCallback(() => {
     return <Icon
@@ -618,6 +647,25 @@ function App(initialState?: IInitialState | undefined) {
     ></Icon>;
   }, [isFlowPage, openFlowEditor])
 
+  const renderThemeToggle = useCallback(() => {
+    const prefersDark = typeof window.matchMedia === 'function'
+      && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const resolvedTheme = activeTheme === 'system'
+      ? (prefersDark ? 'dark' : 'light')
+      : activeTheme;
+    const iconName = resolvedTheme === 'dark' ? 'Sunny' : 'ClearNight';
+    const title = resolvedTheme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode';
+
+    return <Icon
+      className="App-icon"
+      iconName={iconName}
+      title={title}
+      onClick={toggleTheme}
+      onMouseEnter={() => { setHoverMessage(title) }}
+      onMouseLeave={() => { setHoverMessage(null) }}
+    />;
+  }, [activeTheme, toggleTheme]);
+
   return (
     <div className="App">
       <header className="App-header">
@@ -628,7 +676,8 @@ function App(initialState?: IInitialState | undefined) {
         {renderCopyAllActionsFromPage()}
         {renderInsertToClipboardV3Button()}
         {renderFlowEditorButton()}
-        <div style={{ marginLeft: 'auto' }}>
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '4px' }}>
+          {renderThemeToggle()}
           {renderSettingsButton()}
         </div>
       </header>
@@ -645,11 +694,7 @@ function App(initialState?: IInitialState | undefined) {
       </MessageBar>}
 
       {showSettings ? (
-        <div style={{
-          flex: 1,
-          overflowY: 'auto',
-          padding: '20px'
-        }}>
+        <div className="settings-panel">
           <Settings 
             storageService={storageService} 
             onSettingsChange={onSettingsChanged}

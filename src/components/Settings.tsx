@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState, useRef } from 'react';
 import { Stack, Text, Separator, Toggle, TooltipHost, TextField, ChoiceGroup, IChoiceGroupOption, PrimaryButton, DefaultButton, MessageBar, MessageBarType, SpinButton, Label } from '@fluentui/react';
 import { IStorageService } from '../services/interfaces';
-import { ISettingsModel, defaultSettings, IActionModel } from '../models';
+import { ISettingsModel, defaultSettings, IActionModel, ViewMode, ThemeMode } from '../models';
 import { IAnalysisConfig, IRatingThresholds, defaultAnalysisConfig, IAnalysisConfigExport, ANALYSIS_CONFIG_VERSION } from '../config/AnalysisConfig';
 
 interface SettingsProps {
@@ -82,6 +82,53 @@ const Settings: React.FC<SettingsProps> = ({ storageService, onSettingsChange, o
     const url = newValue || '';
     const updatedSettings = await storageService.updateSettings({ predefinedActionsUrl: url });
     setSettings(updatedSettings);
+    if (onSettingsChange) {
+      onSettingsChange(updatedSettings);
+    }
+  }, [storageService, onSettingsChange]);
+
+  const [surfaceHint, setSurfaceHint] = useState<string | null>(null);
+  const currentSurface = document.documentElement.dataset.surface as ViewMode | undefined;
+
+  const handleViewModeChange = useCallback(async (ev?: React.FormEvent<HTMLElement | HTMLInputElement>, option?: IChoiceGroupOption) => {
+    if (!option) return;
+    const newMode = option.key as ViewMode;
+    const updatedSettings = await storageService.updateSettings({ viewMode: newMode });
+    setSettings(updatedSettings);
+
+    // Notify the background script to switch surface mode
+    chrome.runtime.sendMessage({ type: 'set-view-mode', mode: newMode });
+
+    // Show migration hint
+    const activeSurface = currentSurface || 'popup';
+    if (newMode !== activeSurface) {
+      if (activeSurface === 'sidepanel' && newMode === 'popup') {
+        setSurfaceHint('Popup mode is on. Close this side panel and click the extension icon to open the popup.');
+      } else if (activeSurface === 'popup' && newMode === 'sidepanel') {
+        setSurfaceHint('Side panel mode is on. Close this popup and click the extension icon to open the side panel.');
+      }
+    } else {
+      setSurfaceHint(null);
+    }
+
+    if (onSettingsChange) {
+      onSettingsChange(updatedSettings);
+    }
+  }, [storageService, onSettingsChange, currentSurface]);
+
+  const handleThemeChange = useCallback(async (ev?: React.FormEvent<HTMLElement | HTMLInputElement>, option?: IChoiceGroupOption) => {
+    if (!option) return;
+    const newTheme = option.key as ThemeMode;
+    const updatedSettings = await storageService.updateSettings({ theme: newTheme });
+    setSettings(updatedSettings);
+
+    // Apply theme to document immediately
+    if (newTheme === 'system') {
+      delete document.documentElement.dataset.theme;
+    } else {
+      document.documentElement.dataset.theme = newTheme;
+    }
+
     if (onSettingsChange) {
       onSettingsChange(updatedSettings);
     }
@@ -287,10 +334,10 @@ const Settings: React.FC<SettingsProps> = ({ storageService, onSettingsChange, o
       />
 
       <Stack tokens={{ childrenGap: 8 }}>
-        <Text variant="xLarge" styles={{ root: { fontWeight: 600, color: '#323130' } }}>
+        <Text variant="xLarge" styles={{ root: { fontWeight: 600, color: 'var(--color-fg)' } }}>
           Extension Settings
         </Text>
-        <Text variant="medium" styles={{ root: { color: '#605e5c' } }}>
+        <Text variant="medium" styles={{ root: { color: 'var(--color-fg-secondary)' } }}>
           Configure how the Power Automate Actions extension behaves
         </Text>
       </Stack>
@@ -306,11 +353,70 @@ const Settings: React.FC<SettingsProps> = ({ storageService, onSettingsChange, o
         </MessageBar>
       )}
 
+      {/* Appearance Section */}
+      <Stack tokens={{ childrenGap: 12 }}>
+        <Text variant="medium" styles={{ root: { fontWeight: 600 } }}>
+          Appearance
+        </Text>
+        <Text variant="small" styles={{ root: { color: 'var(--color-fg-secondary)' } }}>
+          Choose how the extension opens and its visual theme
+        </Text>
+
+        <Stack tokens={{ childrenGap: 8 }}>
+          <Text variant="small" styles={{ root: { fontWeight: 600 } }}>
+            Surface Mode
+          </Text>
+          <ChoiceGroup
+            selectedKey={settings.viewMode || 'popup'}
+            onChange={handleViewModeChange}
+            options={[
+              { key: 'popup', text: 'Popup' },
+              { key: 'sidepanel', text: 'Side Panel' },
+            ]}
+            styles={{
+              root: { marginLeft: '16px' },
+              label: { fontWeight: 'normal' }
+            }}
+          />
+          {surfaceHint && (
+            <MessageBar
+              messageBarType={MessageBarType.info}
+              isMultiline={false}
+              onDismiss={() => setSurfaceHint(null)}
+              dismissButtonAriaLabel="Close"
+            >
+              {surfaceHint}
+            </MessageBar>
+          )}
+        </Stack>
+
+        <Stack tokens={{ childrenGap: 8 }}>
+          <Text variant="small" styles={{ root: { fontWeight: 600 } }}>
+            Theme
+          </Text>
+          <ChoiceGroup
+            selectedKey={settings.theme || 'system'}
+            onChange={handleThemeChange}
+            options={[
+              { key: 'system', text: 'System' },
+              { key: 'light', text: 'Light' },
+              { key: 'dark', text: 'Dark' },
+            ]}
+            styles={{
+              root: { marginLeft: '16px' },
+              label: { fontWeight: 'normal' },
+              flexContainer: { display: 'flex', flexDirection: 'row', gap: '16px' }
+            }}
+          />
+        </Stack>
+      </Stack>
+      <Separator />
+
       <Stack tokens={{ childrenGap: 12 }}>
         <Text variant="medium" styles={{ root: { fontWeight: 600 } }}>
           Favorite Actions Management
         </Text>
-        <Text variant="small" styles={{ root: { color: '#605e5c' } }}>
+        <Text variant="small" styles={{ root: { color: 'var(--color-fg-secondary)' } }}>
           Import or export your favorite actions as a JSON file
         </Text>
         
@@ -373,7 +479,7 @@ const Settings: React.FC<SettingsProps> = ({ storageService, onSettingsChange, o
               data-testid="recording-time-info-icon"
               style={{
                 fontSize: 14,
-                color: '#0078d4',
+                color: 'var(--color-brand)',
                 cursor: 'help'
               }}
             >
@@ -402,7 +508,7 @@ const Settings: React.FC<SettingsProps> = ({ storageService, onSettingsChange, o
               data-testid="search-bar-info-icon"
               style={{
                 fontSize: 14,
-                color: '#0078d4',
+                color: 'var(--color-brand)',
                 cursor: 'help'
               }}
             >
@@ -422,7 +528,7 @@ const Settings: React.FC<SettingsProps> = ({ storageService, onSettingsChange, o
         <Text variant="medium" styles={{ root: { fontWeight: 600 } }}>
           Predefined Actions
         </Text>
-        <Text variant="small" styles={{ root: { color: '#605e5c' } }}>
+        <Text variant="small" styles={{ root: { color: 'var(--color-fg-secondary)' } }}>
           Load template actions from a GitHub JSON file for easy reuse
         </Text>
 
@@ -436,7 +542,7 @@ const Settings: React.FC<SettingsProps> = ({ storageService, onSettingsChange, o
               <span
                 style={{
                   fontSize: 14,
-                  color: '#0078d4',
+                  color: 'var(--color-brand)',
                   cursor: 'help'
                 }}
               >
@@ -459,7 +565,7 @@ const Settings: React.FC<SettingsProps> = ({ storageService, onSettingsChange, o
             description="Enter the raw URL to your GitHub Gist or repository JSON file"
             multiline={false}
           />
-          <Text variant="small" styles={{ root: { color: '#605e5c', fontStyle: 'italic' } }}>
+          <Text variant="small" styles={{ root: { color: 'var(--color-fg-secondary)', fontStyle: 'italic' } }}>
             Tip: Use GitHub Gist for easy editing. Actions are cached for 1 hour.
           </Text>
         </Stack>
@@ -472,7 +578,7 @@ const Settings: React.FC<SettingsProps> = ({ storageService, onSettingsChange, o
         <Text variant="medium" styles={{ root: { fontWeight: 600 } }}>
           Flow Analysis Configuration
         </Text>
-        <Text variant="small" styles={{ root: { color: '#605e5c' } }}>
+        <Text variant="small" styles={{ root: { color: 'var(--color-fg-secondary)' } }}>
           Customize thresholds and scoring rules for flow quality analysis
         </Text>
 
@@ -481,7 +587,7 @@ const Settings: React.FC<SettingsProps> = ({ storageService, onSettingsChange, o
           <Text variant="small" styles={{ root: { fontWeight: 600 } }}>
             Configuration Templates
           </Text>
-          <Text variant="small" styles={{ root: { color: '#605e5c' } }}>
+          <Text variant="small" styles={{ root: { color: 'var(--color-fg-secondary)' } }}>
             Export your analysis settings to share with team or import from a template
           </Text>
 
@@ -504,7 +610,7 @@ const Settings: React.FC<SettingsProps> = ({ storageService, onSettingsChange, o
           <Text variant="small" styles={{ root: { fontWeight: 600 } }}>
             Rating Thresholds
           </Text>
-          <Text variant="small" styles={{ root: { color: '#605e5c' } }}>
+          <Text variant="small" styles={{ root: { color: 'var(--color-fg-secondary)' } }}>
             Set amber (warning) and red (critical) thresholds for each metric
           </Text>
 
@@ -589,7 +695,7 @@ const Settings: React.FC<SettingsProps> = ({ storageService, onSettingsChange, o
           <Text variant="small" styles={{ root: { fontWeight: 600 } }}>
             Variable Naming Conventions
           </Text>
-          <Text variant="small" styles={{ root: { color: '#605e5c' } }}>
+          <Text variant="small" styles={{ root: { color: 'var(--color-fg-secondary)' } }}>
             Set the prefix character for each variable type (e.g., b for boolean, s for string)
           </Text>
 
