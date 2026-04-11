@@ -41,6 +41,12 @@ module.exports = {
                     }),
                     new HtmlWebpackPlugin({
                         inject: true,
+                        chunks: ["main"],
+                        template: paths.appPublic + '/sidepanel.html',
+                        filename: 'sidepanel.html',
+                    }),
+                    new HtmlWebpackPlugin({
+                        inject: true,
                         chunks: ["flow-editor"],
                         template: paths.appPublic + '/flow-editor.html',
                         filename: 'flow-editor.html',

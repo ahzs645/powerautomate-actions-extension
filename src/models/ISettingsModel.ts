@@ -1,3 +1,6 @@
+export type ViewMode = 'popup' | 'sidepanel';
+export type ThemeMode = 'system' | 'light' | 'dark';
+
 export interface ISettingsModel {
   isRecordingPage?: boolean | null;
   isClassicPowerAutomatePage?: boolean | null;
@@ -7,6 +10,8 @@ export interface ISettingsModel {
   recordingStartTime?: number | null;
   showPredefinedActions?: boolean;
   predefinedActionsUrl?: string;
+  viewMode?: ViewMode;
+  theme?: ThemeMode;
 }
 
 export const defaultSettings: ISettingsModel = {
@@ -18,4 +23,6 @@ export const defaultSettings: ISettingsModel = {
   recordingStartTime: null,
   showPredefinedActions: true,
   predefinedActionsUrl: '',
+  viewMode: 'popup',
+  theme: 'system',
 };

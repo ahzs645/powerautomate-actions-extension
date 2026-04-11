@@ -538,13 +538,73 @@ async function checkFlowPage(senderTab?: chrome.tabs.Tab): Promise<{ isFlowPage:
     return { isFlowPage: false };
 }
 
+// Surface mode management (popup vs sidepanel)
+const VIEW_MODE_KEY = 'appSettings';
+
+async function getStoredViewMode(): Promise<'popup' | 'sidepanel'> {
+    try {
+        const result = await chrome.storage.local.get(VIEW_MODE_KEY);
+        const settings = result[VIEW_MODE_KEY];
+        if (settings?.viewMode === 'sidepanel') return 'sidepanel';
+    } catch { /* ignore */ }
+    return 'popup';
+}
+
+async function applySurfaceMode(mode: 'popup' | 'sidepanel') {
+    debugLog('Applying surface mode:', mode);
+    // chrome.sidePanel API may not be typed in older @types/chrome
+    const sidePanel = (chrome as any).sidePanel as
+        | { setPanelBehavior: (opts: { openPanelOnActionClick: boolean }) => Promise<void> }
+        | undefined;
+
+    if (mode === 'sidepanel') {
+        // Disable popup so clicking icon opens the side panel
+        await chrome.action.setPopup({ popup: '' });
+        if (sidePanel?.setPanelBehavior) {
+            await sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
+        }
+    } else {
+        // Re-enable popup, disable side panel auto-open
+        await chrome.action.setPopup({ popup: 'index.html' });
+        if (sidePanel?.setPanelBehavior) {
+            await sidePanel.setPanelBehavior({ openPanelOnActionClick: false });
+        }
+    }
+}
+
 // Main initialization
 const main = async () => {
     // Restore state from session storage (survives service worker restarts)
     await restoreState();
 
+    // Apply stored surface mode on startup
+    const initialViewMode = await getStoredViewMode();
+    await applySurfaceMode(initialViewMode);
+
+    // Watch for settings changes to switch surface mode dynamically
+    chrome.storage.onChanged.addListener((changes, area) => {
+        if (area === 'local' && changes[VIEW_MODE_KEY]) {
+            const newSettings = changes[VIEW_MODE_KEY].newValue;
+            if (newSettings?.viewMode) {
+                applySurfaceMode(newSettings.viewMode);
+            }
+        }
+    });
+
     // Existing recording functionality
     chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+        // Handle surface mode change messages
+        if (message.type === 'set-view-mode') {
+            const mode = message.mode as 'popup' | 'sidepanel';
+            applySurfaceMode(mode).then(() => {
+                sendResponse({ success: true });
+            }).catch((error) => {
+                debugError('Failed to set view mode:', error);
+                sendResponse({ success: false, error: String(error) });
+            });
+            return true;
+        }
+
         // Handle flow editor messages
         if (message.type === 'app-loaded' || message.type === 'refresh' || message.type === 'open-flow-editor' || message.type === 'check-flow-page') {
             if (message.type === 'open-flow-editor') {
