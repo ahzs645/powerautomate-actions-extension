@@ -76,6 +76,43 @@ The repository also includes the build package, allowing for direct installation
 To do so please unpack *[ApplicationBuild](https://github.com/mkm17/powerautomate-actions-extension/blob/main/ApplicationBuild.zip)* zip file and follow the steps described [here](https://support.google.com/chrome/a/answer/2714278?hl=en) to install the package locally on a browser. 
 
 
+## **6. Utility function pack**
+
+The extension bundles HTTP presets for the [File & Utility Azure Functions](https://github.com/) app — 42 endpoints covering PDF, Word, Excel, JSON array and image operations that Power Automate has no native action for (merge/split PDFs, regex find and replace, left joins, Excel sheet manipulation, zip/unzip, and so on).
+
+Pick a preset from the **Predefined Actions** tab, hit *Insert into clipboard*, then paste with Ctrl+V in the modern Power Automate designer. The action arrives fully formed, with the request body already shaped for the endpoint.
+
+### Pointing presets at your Function App
+
+Presets ship with `{{functionBaseUrl}}` and `{{functionKey}}` placeholders. Under **Settings → Utility Function Pack**, set your Function App URL and choose how the key is handled:
+
+- **Inline** — the key is stored in extension storage and written into each pasted action's URL. Convenient for quick work. The key is masked in the UI and always stripped from favorites exports.
+- **Parameter references** — presets emit `@{parameters('AzureFunctionBaseUrl')}` and `@{parameters('AzureFunctionKey')}` instead, so no secret ever lands in the flow definition. Use this for anything solution-bound.
+
+Until a base URL is set, the tab shows a warning and pasted actions keep their placeholders.
+
+### Filling in parameters before pasting
+
+The gear icon on any utility preset opens a parameter form built from that endpoint's real signature. Values starting with `@` are passed through as Power Automate expressions; everything else is sent literally. The generated action replaces the preset in the list, already selected.
+
+### Companion Parse JSON actions
+
+Enable *Add companion Parse JSON actions* to get a matching `Parse JSON` preset for every endpoint that returns structured data, with the schema pre-filled (file objects, file arrays, or the `{ values, no_value_loop_array }` wrapper).
+
+### A note on four endpoints
+
+`py_transform_array`, `py_filter`, `for_each_lookup` and `for_each_filter` pass the caller's expression to Python `eval()` with no sandbox — anyone holding the function key can execute arbitrary code on the Function App. They are excluded from the pack by default and must be opted into explicitly in Settings.
+
+<br />
+
+## **7. Tenant data scrubbing**
+
+Copied and recorded actions carry more than the operation definition: the designer stores a drive-item-id to filename map under each action's `metadata`, connection GUIDs under `host.connection`, and any function key sits in plain sight in the URL. Sharing a favorites export therefore leaks a document inventory and live credentials.
+
+Favorites exports are now scrubbed by default — drive item ids, SharePoint hostnames, file names, email addresses and query-string secrets are all removed, and the export confirmation reports what was taken out. The behaviour can be turned off under **Settings → Favorite Actions Management**.
+
+<br />
+
 ## Available Scripts
 
 ### `npm test`
@@ -88,7 +125,35 @@ See the section about [running tests](https://facebook.github.io/create-react-ap
 The solution uses [craco](https://www.npmjs.com/package/@craco/craco) package to override webpack configuration. To build the solution use `npm run build` command. The build artifacts will be stored in the `build/` directory.
 The build can be directly uploaded to local Chrome browser [guideline](https://support.google.com/chrome/a/answer/2714278?hl=en).
 
+### `node scripts/extract-flow-presets.js <export.zip>`
+
+Converts a Power Automate flow export into a predefined-actions pack, so any flow you already have becomes a reusable set of presets.
+
+```bash
+# Individual HTTP calls
+node scripts/extract-flow-presets.js MyFlow.zip -o my-actions.json
+
+# Whole scopes instead, tagged with a category
+node scripts/extract-flow-presets.js MyFlow.zip --scopes --category "My Utils" -o my-actions.json
+```
+
+Accepts a legacy flow export, a Dataverse solution export, or a bare `definition.json`. Every action is scrubbed on the way out (see *Tenant data scrubbing* above); pass `--keep-secrets` only for a pack that will never leave your machine. Point the extension at the result via **Settings → Predefined Actions**, which now accepts one URL per line.
+
 ## New Features
+
+**2.3.0**
+- Added a bundled utility function pack: 42 catalogued endpoints for the File & Utility Azure Functions app (38 enabled by default), pasteable directly into the modern editor.
+- Added Function App URL and key configuration, with a choice between inline keys and `@{parameters(...)}` references.
+- Added a parameter form for building an endpoint's request body before pasting.
+- Added optional companion Parse JSON actions with pre-filled response schemas.
+- Added category grouping and filtering to the Predefined Actions tab; search now matches descriptions too.
+- Predefined Actions accepts multiple source URLs, each cached independently.
+- Favorites exports are scrubbed of drive item ids, file names, tenant hostnames, email addresses and query-string secrets by default.
+- Added `scripts/extract-flow-presets.js` for converting your own flow exports into packs.
+- **Fixes**
+- Pasting a Scope-type preset into the modern editor no longer throws on the missing `inputs.host` path.
+- Actions sharing a title no longer overwrite one another in the clipboard payload; keys are now unique and space-free.
+- An action with unparseable JSON is skipped rather than failing the whole batch.
 
 **1.0.15**
 - Adds predefined actions functionality.

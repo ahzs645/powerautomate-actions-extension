@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useState, useRef } from 'react';
 import { Stack, Text, Separator, Toggle, TooltipHost, TextField, ChoiceGroup, IChoiceGroupOption, PrimaryButton, DefaultButton, MessageBar, MessageBarType, SpinButton, Label } from '@fluentui/react';
 import { IStorageService } from '../services/interfaces';
+import { actionSanitizer } from '../services/ActionSanitizer';
+import { FunctionKeyMode } from '../services/UtilityActionsService';
 import { ISettingsModel, defaultSettings, IActionModel, ViewMode, ThemeMode } from '../models';
 import { IAnalysisConfig, IRatingThresholds, defaultAnalysisConfig, IAnalysisConfigExport, ANALYSIS_CONFIG_VERSION } from '../config/AnalysisConfig';
 
@@ -87,6 +89,63 @@ const Settings: React.FC<SettingsProps> = ({ storageService, onSettingsChange, o
     }
   }, [storageService, onSettingsChange]);
 
+  // Utility function pack settings. Every one of these changes the generated
+  // presets, so each notifies the app to re-materialize the list.
+  const updateAndNotify = useCallback(async (partial: Partial<ISettingsModel>) => {
+    const updatedSettings = await storageService.updateSettings(partial);
+    setSettings(updatedSettings);
+    if (onSettingsChange) {
+      onSettingsChange(updatedSettings);
+    }
+  }, [storageService, onSettingsChange]);
+
+  const handleShowUtilityActionsChange = useCallback(
+    (_e: React.MouseEvent<HTMLElement>, checked?: boolean) =>
+      updateAndNotify({ showUtilityActions: checked ?? true }),
+    [updateAndNotify]);
+
+  const handleUtilityBaseUrlChange = useCallback(
+    (_e: React.FormEvent<HTMLInputElement | HTMLTextAreaElement>, newValue?: string) =>
+      updateAndNotify({ utilityFunctionBaseUrl: (newValue || '').trim() }),
+    [updateAndNotify]);
+
+  const handleUtilityKeyChange = useCallback(
+    (_e: React.FormEvent<HTMLInputElement | HTMLTextAreaElement>, newValue?: string) =>
+      updateAndNotify({ utilityFunctionKey: (newValue || '').trim() }),
+    [updateAndNotify]);
+
+  const handleUtilityKeyModeChange = useCallback(
+    (_e?: React.FormEvent<HTMLElement | HTMLInputElement>, option?: IChoiceGroupOption) => {
+      if (!option) return;
+      return updateAndNotify({ utilityFunctionKeyMode: option.key as FunctionKeyMode });
+    },
+    [updateAndNotify]);
+
+  const handleUtilityBaseUrlParameterChange = useCallback(
+    (_e: React.FormEvent<HTMLInputElement | HTMLTextAreaElement>, newValue?: string) =>
+      updateAndNotify({ utilityFunctionBaseUrlParameterName: (newValue || '').trim() }),
+    [updateAndNotify]);
+
+  const handleUtilityKeyParameterChange = useCallback(
+    (_e: React.FormEvent<HTMLInputElement | HTMLTextAreaElement>, newValue?: string) =>
+      updateAndNotify({ utilityFunctionKeyParameterName: (newValue || '').trim() }),
+    [updateAndNotify]);
+
+  const handleShowParseJsonChange = useCallback(
+    (_e: React.MouseEvent<HTMLElement>, checked?: boolean) =>
+      updateAndNotify({ showUtilityParseJsonActions: checked ?? false }),
+    [updateAndNotify]);
+
+  const handleIncludeUnsafeChange = useCallback(
+    (_e: React.MouseEvent<HTMLElement>, checked?: boolean) =>
+      updateAndNotify({ includeUnsafeUtilityActions: checked ?? false }),
+    [updateAndNotify]);
+
+  const handleSanitizeOnExportChange = useCallback(
+    (_e: React.MouseEvent<HTMLElement>, checked?: boolean) =>
+      updateAndNotify({ sanitizeOnExport: checked ?? true }),
+    [updateAndNotify]);
+
   const [surfaceHint, setSurfaceHint] = useState<string | null>(null);
   const currentSurface = document.documentElement.dataset.surface as ViewMode | undefined;
 
@@ -143,7 +202,15 @@ const Settings: React.FC<SettingsProps> = ({ storageService, onSettingsChange, o
         return;
       }
 
-      const dataStr = JSON.stringify(favorites, null, 2);
+      // Recorded and copied actions carry drive item ids, filenames, tenant
+      // emails and any function key in the URI. Scrub before the file leaves
+      // the browser unless the user has explicitly opted out.
+      const shouldSanitize = settings.sanitizeOnExport ?? true;
+      const result = shouldSanitize
+        ? actionSanitizer.sanitizeActions(favorites)
+        : { value: favorites, report: null };
+
+      const dataStr = JSON.stringify(result.value, null, 2);
       const dataBlob = new Blob([dataStr], { type: 'application/json' });
       const url = URL.createObjectURL(dataBlob);
       const link = document.createElement('a');
@@ -154,12 +221,17 @@ const Settings: React.FC<SettingsProps> = ({ storageService, onSettingsChange, o
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
 
-      setMessage({ text: `Successfully exported ${favorites.length} favorite action(s)`, type: MessageBarType.success });
+      const scrubSummary = result.report ? actionSanitizer.describeReport(result.report) : null;
+      setMessage({
+        text: `Successfully exported ${favorites.length} favorite action(s)`
+          + (scrubSummary ? `. ${scrubSummary}.` : ''),
+        type: MessageBarType.success,
+      });
     } catch (error) {
       setMessage({ text: 'Failed to export favorites', type: MessageBarType.error });
       console.error('Export error:', error);
     }
-  }, [storageService]);
+  }, [storageService, settings.sanitizeOnExport]);
 
   const handleImport = useCallback(() => {
     fileInputRef.current?.click();
@@ -432,6 +504,27 @@ const Settings: React.FC<SettingsProps> = ({ storageService, onSettingsChange, o
             iconProps={{ iconName: 'Upload' }}
           />
         </Stack>
+
+        <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 8 }}>
+          <Stack styles={{ root: { flex: 1 } }}>
+            <Text>Scrub tenant data on export</Text>
+            <Text variant="small" styles={{ root: { color: 'var(--color-fg-secondary)' } }}>
+              Removes drive item ids, file names, email addresses and function keys
+            </Text>
+          </Stack>
+          <Toggle
+            checked={settings.sanitizeOnExport ?? true}
+            onChange={handleSanitizeOnExportChange}
+            ariaLabel="Scrub tenant data on export"
+          />
+        </Stack>
+
+        {(settings.sanitizeOnExport ?? true) === false && (
+          <MessageBar messageBarType={MessageBarType.warning} isMultiline>
+            Exports will include the designer metadata attached to each action, which
+            can contain document names, drive item ids and any key present in a URL.
+          </MessageBar>
+        )}
       </Stack>
       <Separator />
       
@@ -519,6 +612,7 @@ const Settings: React.FC<SettingsProps> = ({ storageService, onSettingsChange, o
         <Toggle
           checked={settings.showActionSearchBar ?? true}
           onChange={handleShowActionSearchBarChange}
+          ariaLabel="Show Action Search Bar"
         />
       </Stack>
 
@@ -553,22 +647,138 @@ const Settings: React.FC<SettingsProps> = ({ storageService, onSettingsChange, o
           <Toggle
             checked={settings.showPredefinedActions ?? true}
             onChange={handleShowPredefinedActionsChange}
+            ariaLabel="Show Predefined Actions"
           />
         </Stack>
 
         <Stack tokens={{ childrenGap: 8 }}>
-          <Text variant="small">GitHub JSON URL</Text>
+          <Text variant="small">Action pack URLs</Text>
           <TextField
             value={settings.predefinedActionsUrl || ''}
             onChange={handlePredefinedActionsUrlChange}
             placeholder="https://gist.githubusercontent.com/username/gist-id/raw/predefined-actions.json"
-            description="Enter the raw URL to your GitHub Gist or repository JSON file"
-            multiline={false}
+            description="One raw JSON URL per line. Each source is cached separately."
+            multiline
+            rows={3}
           />
           <Text variant="small" styles={{ root: { color: 'var(--color-fg-secondary)', fontStyle: 'italic' } }}>
             Tip: Use GitHub Gist for easy editing. Actions are cached for 1 hour.
           </Text>
         </Stack>
+      </Stack>
+
+      <Separator />
+
+      {/* Utility Function Pack Section */}
+      <Stack tokens={{ childrenGap: 12 }}>
+        <Text variant="medium" styles={{ root: { fontWeight: 600 } }}>
+          Utility Function Pack
+        </Text>
+        <Text variant="small" styles={{ root: { color: 'var(--color-fg-secondary)' } }}>
+          Bundled HTTP presets for the File &amp; Utility Azure Functions app (PDF, Word, Excel, JSON and image operations)
+        </Text>
+
+        <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 8 }}>
+          <Text styles={{ root: { flex: 1 } }}>Show utility actions</Text>
+          <Toggle
+            checked={settings.showUtilityActions ?? true}
+            onChange={handleShowUtilityActionsChange}
+            ariaLabel="Show utility actions"
+          />
+        </Stack>
+
+        <Stack tokens={{ childrenGap: 8 }}>
+          <Text variant="small">Function App URL</Text>
+          <TextField
+            value={settings.utilityFunctionBaseUrl || ''}
+            onChange={handleUtilityBaseUrlChange}
+            placeholder="https://my-utils.azurewebsites.net"
+            description="Origin only, no trailing slash. Presets append /api/<route>."
+          />
+        </Stack>
+
+        <Stack tokens={{ childrenGap: 8 }}>
+          <Text variant="small">Function key handling</Text>
+          <ChoiceGroup
+            selectedKey={settings.utilityFunctionKeyMode || 'inline'}
+            options={[
+              {
+                key: 'inline',
+                text: 'Store the key and write it into the URL',
+              },
+              {
+                key: 'parameter',
+                text: 'Emit @{parameters(...)} references instead',
+              },
+            ]}
+            onChange={handleUtilityKeyModeChange}
+          />
+        </Stack>
+
+        {(settings.utilityFunctionKeyMode || 'inline') === 'inline' ? (
+          <Stack tokens={{ childrenGap: 8 }}>
+            <TextField
+              label="Function key"
+              type="password"
+              canRevealPassword
+              revealPasswordAriaLabel="Show function key"
+              value={settings.utilityFunctionKey || ''}
+              onChange={handleUtilityKeyChange}
+              placeholder="Paste the function or host key"
+            />
+            <MessageBar messageBarType={MessageBarType.warning} isMultiline>
+              The key is stored unencrypted in extension storage and is written into
+              every pasted action. It is always stripped from exports. For anything
+              solution-bound, prefer the parameter option above.
+            </MessageBar>
+          </Stack>
+        ) : (
+          <Stack horizontal tokens={{ childrenGap: 8 }}>
+            <TextField
+              label="Base URL parameter"
+              value={settings.utilityFunctionBaseUrlParameterName || 'AzureFunctionBaseUrl'}
+              onChange={handleUtilityBaseUrlParameterChange}
+              styles={{ root: { flex: 1 } }}
+            />
+            <TextField
+              label="Key parameter"
+              value={settings.utilityFunctionKeyParameterName || 'AzureFunctionKey'}
+              onChange={handleUtilityKeyParameterChange}
+              styles={{ root: { flex: 1 } }}
+            />
+          </Stack>
+        )}
+
+        <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 8 }}>
+          <Text styles={{ root: { flex: 1 } }}>Add companion Parse JSON actions</Text>
+          <Toggle
+            checked={settings.showUtilityParseJsonActions ?? false}
+            onChange={handleShowParseJsonChange}
+            ariaLabel="Add companion Parse JSON actions"
+          />
+        </Stack>
+
+        <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 8 }}>
+          <Stack styles={{ root: { flex: 1 } }}>
+            <Text>Include eval-backed endpoints</Text>
+            <Text variant="small" styles={{ root: { color: 'var(--color-fg-secondary)' } }}>
+              py_transform_array, py_filter, for_each_lookup, for_each_filter
+            </Text>
+          </Stack>
+          <Toggle
+            checked={settings.includeUnsafeUtilityActions ?? false}
+            onChange={handleIncludeUnsafeChange}
+            ariaLabel="Include eval-backed endpoints"
+          />
+        </Stack>
+
+        {settings.includeUnsafeUtilityActions && (
+          <MessageBar messageBarType={MessageBarType.severeWarning} isMultiline>
+            These four endpoints pass your expression to Python <code>eval()</code> with
+            no sandbox. Anyone who can call them can run arbitrary code on the Function
+            App. Only enable this for a function you control.
+          </MessageBar>
+        )}
       </Stack>
 
       <Separator />

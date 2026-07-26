@@ -5,6 +5,7 @@ import { IActionModel } from './models/IActionModel';
 import { ISettingsModel, ThemeMode } from './models/ISettingsModel';
 import { StorageService } from './services/StorageService';
 import { ExtensionCommunicationService, PredefinedActionsService } from './services';
+import { utilityActionsService } from './services/UtilityActionsService';
 import { Icon, MessageBar, MessageBarType, Pivot, PivotItem } from '@fluentui/react';
 import ActionsList from './components/ActionsList';
 import Settings from './components/Settings';
@@ -192,15 +193,11 @@ function App(initialState?: IInitialState | undefined) {
     }
   }, [communicationService, isRecording, storageService, stopRecordingTimer, startRecordingTimer]);
 
-  const loadPredefinedActions = useCallback(async (url: string) => {
-    if (!url || url.trim() === '') {
-      setPredefinedActions([]);
-      return;
-    }
-
+  // Loads the bundled utility pack plus every configured remote source.
+  const loadPredefinedActions = useCallback(async (currentSettings: ISettingsModel) => {
     setPredefinedActionsLoading(true);
     try {
-      const actions = await predefinedActionsService.fetchPredefinedActions(url);
+      const actions = await predefinedActionsService.getAllActions(currentSettings);
       setPredefinedActions(actions);
     } catch (error) {
       console.error('Failed to load predefined actions:', error);
@@ -212,30 +209,26 @@ function App(initialState?: IInitialState | undefined) {
 
   const handleSettingsChange = useCallback(async (updatedSettings: ISettingsModel) => {
     setSettings(updatedSettings);
-    
-    // Reload predefined actions if URL changed or visibility toggled
-    if (updatedSettings.showPredefinedActions && updatedSettings.predefinedActionsUrl) {
-      loadPredefinedActions(updatedSettings.predefinedActionsUrl);
-    } else {
-      setPredefinedActions([]);
-    }
+    // The utility pack is rebuilt from settings (base URL, key mode, unsafe
+    // opt-in), so any settings change has to re-materialize the list.
+    loadPredefinedActions(updatedSettings);
   }, [loadPredefinedActions]);
 
   const refreshPredefinedActions = useCallback(async () => {
-    if (settings?.predefinedActionsUrl) {
-      setPredefinedActionsLoading(true);
-      try {
-        const actions = await predefinedActionsService.refreshPredefinedActions(settings.predefinedActionsUrl);
-        setPredefinedActions(actions);
-        setNotificationMessage('Predefined actions refreshed successfully');
-        setIsSuccessNotification(true);
-      } catch (error) {
-        console.error('Failed to refresh predefined actions:', error);
-        setNotificationMessage('Failed to refresh predefined actions');
-        setIsSuccessNotification(false);
-      } finally {
-        setPredefinedActionsLoading(false);
-      }
+    if (!settings) { return; }
+
+    setPredefinedActionsLoading(true);
+    try {
+      const actions = await predefinedActionsService.refreshAll(settings);
+      setPredefinedActions(actions);
+      setNotificationMessage('Predefined actions refreshed successfully');
+      setIsSuccessNotification(true);
+    } catch (error) {
+      console.error('Failed to refresh predefined actions:', error);
+      setNotificationMessage('Failed to refresh predefined actions');
+      setIsSuccessNotification(false);
+    } finally {
+      setPredefinedActionsLoading(false);
     }
   }, [settings, predefinedActionsService]);
 
@@ -278,10 +271,8 @@ function App(initialState?: IInitialState | undefined) {
       setFavoriteActions(actions);
     });
 
-    // Load predefined actions
-    if (settings.showPredefinedActions && settings.predefinedActionsUrl) {
-      loadPredefinedActions(settings.predefinedActionsUrl);
-    }
+    // Load predefined actions (bundled utility pack + any remote sources)
+    loadPredefinedActions(settings);
 
     storageService.getIsRecordingValue().then((isRecording) => {
       setIsRecording(isRecording);
@@ -466,6 +457,28 @@ function App(initialState?: IInitialState | undefined) {
     changeSelection(action, predefinedActions, setPredefinedActions);
   }, [changeSelection, predefinedActions])
 
+  const utilityConfig = useMemo(
+    () => settings ? predefinedActionsService.toFunctionConfig(settings) : {},
+    [settings, predefinedActionsService]
+  );
+
+  /**
+   * Replace a preset with the version built by the parameter form and select it,
+   * so the user can insert it straight into the editor.
+   */
+  const addConfiguredAction = useCallback((configured: IActionModel) => {
+    setPredefinedActions(prev => {
+      const next = prev.map(action => action.id === configured.id
+        ? { ...configured, isFavorite: action.isFavorite, isSelected: true }
+        : action);
+      return next.some(action => action.id === configured.id)
+        ? next
+        : [{ ...configured, isSelected: true }, ...next];
+    });
+    setNotificationMessage(`${configured.title} configured and selected`);
+    setIsSuccessNotification(true);
+  }, []);
+
   const insertSelectedActionsToClipboard = useCallback(() => {
     const selectedActions = currentMode === Mode.Requests ? actions?.filter(a => a.isSelected) :
       currentMode === Mode.CopiedActions ? myClipboardActions?.filter(a => a.isSelected) :
@@ -479,8 +492,25 @@ function App(initialState?: IInitialState | undefined) {
       return;
     }
 
+    // A utility preset with no function URL configured still pastes, but the URI
+    // is a placeholder - say so rather than letting it fail at runtime.
+    const unresolved = selectedActions.filter(a => utilityActionsService.hasUnresolvedTokens(a));
+
     communicationService.sendRequest({ actionType: ActionType.SetSelectedActionsIntoClipboardV3, message: selectedActions }, AppElement.ReactApp, AppElement.Content, (response) => {
+      if (!response) {
+        setNotificationMessage("Could not build the clipboard payload from the selected actions");
+        setIsSuccessNotification(false);
+        return;
+      }
+
       navigator.clipboard.writeText(response);
+
+      if (unresolved.length > 0) {
+        setNotificationMessage(`Copied. ${unresolved.length} action(s) still use placeholder URLs - set the Function App URL in Settings.`);
+        setIsSuccessNotification(false);
+        return;
+      }
+
       setNotificationMessage("Actions have been copied - now you can paste them in the Power Automate editor");
       setIsSuccessNotification(true);
     });
@@ -765,9 +795,9 @@ function App(initialState?: IInitialState | undefined) {
               onSearchChange={setSearchTerm}
             />
           </PivotItem>}
-          {settings?.showPredefinedActions && (
+          {(settings?.showPredefinedActions || settings?.showUtilityActions) && (
             <PivotItem headerText="Predefined Actions">
-              <PredefinedActionsList 
+              <PredefinedActionsList
                 actions={predefinedActions}
                 isLoading={predefinedActionsLoading}
                 onRefresh={refreshPredefinedActions}
@@ -775,6 +805,8 @@ function App(initialState?: IInitialState | undefined) {
                 toggleFavoriteFunc={toggleFavorite}
                 searchTerm={searchTerm}
                 onSearchChange={setSearchTerm}
+                utilityConfig={utilityConfig}
+                onConfiguredAction={addConfiguredAction}
               />
             </PivotItem>
           )}

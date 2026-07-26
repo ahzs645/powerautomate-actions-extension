@@ -1,6 +1,11 @@
-import { useCallback, useState } from "react";
-import { Icon, TextField, Panel, PanelType, Spinner, SpinnerSize, Checkbox } from "@fluentui/react";
+import { useCallback, useMemo, useState } from "react";
+import { Icon, TextField, Panel, PanelType, Spinner, SpinnerSize, Checkbox, Dropdown, IDropdownOption, MessageBar, MessageBarType } from "@fluentui/react";
 import { IActionModel } from "../models";
+import { IUtilityAction } from "../models/IUtilityCatalog";
+import { IUtilityFunctionConfig, utilityActionsService } from "../services/UtilityActionsService";
+import UtilityActionForm from "./UtilityActionForm";
+
+const ALL_CATEGORIES = '__all__';
 
 export interface IPredefinedActionsListProps {
     actions: IActionModel[];
@@ -10,11 +15,17 @@ export interface IPredefinedActionsListProps {
     toggleFavoriteFunc?: (action: IActionModel) => void;
     searchTerm: string;
     onSearchChange: (searchTerm: string) => void;
+    /** Current function configuration, used when generating a configured action. */
+    utilityConfig?: IUtilityFunctionConfig;
+    /** Receives an action built from the parameter form. */
+    onConfiguredAction?: (action: IActionModel) => void;
 }
 
 const PredefinedActionsList: React.FC<IPredefinedActionsListProps> = (props) => {
     const [selectedActionForDetails, setSelectedActionForDetails] = useState<IActionModel | null>(null);
     const [isPanelOpen, setIsPanelOpen] = useState(false);
+    const [categoryFilter, setCategoryFilter] = useState<string>(ALL_CATEGORIES);
+    const [configuringAction, setConfiguringAction] = useState<IUtilityAction | null>(null);
 
     const showActionDetails = useCallback((action: IActionModel) => {
         setSelectedActionForDetails(action);
@@ -140,40 +151,104 @@ const PredefinedActionsList: React.FC<IPredefinedActionsListProps> = (props) => 
         );
     }, [selectedActionForDetails, isPanelOpen, hideActionDetails]);
 
+    /** Utility presets carry a catalog route, so the parameter form can be offered. */
+    const getCatalogAction = useCallback((action: IActionModel): IUtilityAction | undefined => {
+        if (!action.id?.startsWith('utility-') || action.id.startsWith('utility-parse-')) {
+            return undefined;
+        }
+        return utilityActionsService.getAction(action.id.replace('utility-', ''));
+    }, []);
+
     const renderAction = useCallback((action: IActionModel) => {
+        const catalogAction = getCatalogAction(action);
+
         return (
-            <div className='App-Action-Row' key={action.id} title={action.url}>
+            <div className='App-Action-Row' key={action.id} title={action.description || action.url}>
                 <Checkbox className='App-Action-Checkbox' checked={action.isSelected} defaultChecked={action.isSelected} onChange={() => { props.changeSelectionFunc?.(action) }}></Checkbox>
                 <img src={action.icon} className='App-Action-Icon' alt={action.title}></img>
-                <span className='App-Action-Element'>{action.title}</span>
+                <span className='App-Action-Element'>
+                    {action.title}
+                    {action.warning && (
+                        <Icon
+                            iconName='Warning'
+                            title={action.warning}
+                            style={{ color: '#a80000', marginLeft: '6px', verticalAlign: 'middle' }}
+                        />
+                    )}
+                </span>
                 <span className='App-Action-Element'>{action.method}</span>
-                <Icon 
-                    className='App-Action-Info' 
-                    iconName='Info' 
+                <Icon
+                    className='App-Action-Info'
+                    iconName='Info'
                     onClick={() => showActionDetails(action)}
                     title="Show Action Details"
                 ></Icon>
                 {props.toggleFavoriteFunc && (
-                    <Icon 
-                        className='App-Action-Favorite' 
-                        iconName={action.isFavorite ? 'FavoriteStarFill' : 'FavoriteStar'} 
-                        onClick={() => { props.toggleFavoriteFunc!(action) }} 
+                    <Icon
+                        className='App-Action-Favorite'
+                        iconName={action.isFavorite ? 'FavoriteStarFill' : 'FavoriteStar'}
+                        onClick={() => { props.toggleFavoriteFunc!(action) }}
                         title={action.isFavorite ? "Remove from Favorites" : "Add to Favorites"}
                     ></Icon>
                 )}
-                <div style={{ width: '30px' }}></div>
+                {catalogAction && props.onConfiguredAction ? (
+                    <Icon
+                        iconName='Settings'
+                        onClick={() => setConfiguringAction(catalogAction)}
+                        title="Fill in parameters before pasting"
+                        style={{ cursor: 'pointer', width: '30px' }}
+                    />
+                ) : (
+                    <div style={{ width: '30px' }}></div>
+                )}
             </div>
         );
-    }, [props, showActionDetails]);
+    }, [props, showActionDetails, getCatalogAction]);
 
-    const filteredActions = useCallback(() => {
-        if (!props.searchTerm || props.searchTerm.trim() === '') {
-            return props.actions;
+    const categoryOptions = useMemo<IDropdownOption[]>(() => {
+        const categories: string[] = [];
+        for (const action of props.actions) {
+            if (action.category && categories.indexOf(action.category) === -1) {
+                categories.push(action.category);
+            }
         }
-        return props.actions.filter(action =>
-            action.title.toLowerCase().includes(props.searchTerm.toLowerCase())
-        );
-    }, [props.actions, props.searchTerm])();
+        return [
+            { key: ALL_CATEGORIES, text: `All categories (${props.actions.length})` },
+            ...categories.map(category => ({
+                key: category,
+                text: `${category} (${props.actions.filter(a => a.category === category).length})`,
+            })),
+        ];
+    }, [props.actions]);
+
+    // Search matches description as well as title; with 40+ presets the title
+    // alone is often not what the user remembers.
+    const filteredActions = useMemo(() => {
+        const term = props.searchTerm?.trim().toLowerCase() || '';
+        return props.actions.filter(action => {
+            if (categoryFilter !== ALL_CATEGORIES && action.category !== categoryFilter) {
+                return false;
+            }
+            if (term === '') { return true; }
+            return action.title.toLowerCase().includes(term)
+                || (action.description?.toLowerCase().includes(term) ?? false);
+        });
+    }, [props.actions, props.searchTerm, categoryFilter]);
+
+    /** Group into category sections, preserving first-seen order. */
+    const groupedActions = useMemo(() => {
+        const groups: { category: string; actions: IActionModel[] }[] = [];
+        for (const action of filteredActions) {
+            const category = action.category || 'Other';
+            let group = groups.find(g => g.category === category);
+            if (!group) {
+                group = { category, actions: [] };
+                groups.push(group);
+            }
+            group.actions.push(action);
+        }
+        return groups;
+    }, [filteredActions]);
 
     const renderHeader = useCallback(() => {
         return (
@@ -193,7 +268,7 @@ const PredefinedActionsList: React.FC<IPredefinedActionsListProps> = (props) => 
         return (
             <div style={{ padding: '10px 20px', backgroundColor: '#f3f2f1', display: 'flex', gap: '10px', alignItems: 'center' }}>
                 <TextField
-                    placeholder="Search actions by title..."
+                    placeholder="Search by title or description..."
                     value={props.searchTerm}
                     onChange={(event, newValue) => props.onSearchChange(newValue || '')}
                     styles={{
@@ -201,6 +276,13 @@ const PredefinedActionsList: React.FC<IPredefinedActionsListProps> = (props) => 
                         field: { fontSize: '14px' }
                     }}
                     iconProps={{ iconName: 'Search' }}
+                />
+                <Dropdown
+                    selectedKey={categoryFilter}
+                    options={categoryOptions}
+                    onChange={(_e, option) => setCategoryFilter((option?.key as string) || ALL_CATEGORIES)}
+                    styles={{ root: { minWidth: 170 } }}
+                    ariaLabel="Filter by category"
                 />
                 {props.onRefresh && (
                     <Icon
@@ -213,7 +295,7 @@ const PredefinedActionsList: React.FC<IPredefinedActionsListProps> = (props) => 
             </div>
         );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [props.searchTerm, props.onSearchChange, props.onRefresh]);
+    }, [props.searchTerm, props.onSearchChange, props.onRefresh, categoryFilter, categoryOptions]);
 
     if (props.isLoading) {
         return (
@@ -223,10 +305,17 @@ const PredefinedActionsList: React.FC<IPredefinedActionsListProps> = (props) => 
         );
     }
 
+    const hasUnresolvedTokens = props.actions.some(action => utilityActionsService.hasUnresolvedTokens(action));
+
     return (
         <>
             <div>{renderHeader()}</div>
             <div>{renderSearch()}</div>
+            {hasUnresolvedTokens && (
+                <MessageBar messageBarType={MessageBarType.warning} isMultiline={false}>
+                    Set the Function App URL in Settings to make these presets runnable.
+                </MessageBar>
+            )}
             <div className="App-Actions">
                 {filteredActions.length === 0 ? (
                     <div style={{ padding: '20px', textAlign: 'center', color: '#605e5c' }}>
@@ -234,10 +323,34 @@ const PredefinedActionsList: React.FC<IPredefinedActionsListProps> = (props) => 
                         <div>No predefined actions available</div>
                     </div>
                 ) : (
-                    filteredActions.map((action) => renderAction(action))
+                    groupedActions.map(group => (
+                        <div key={group.category}>
+                            <div style={{
+                                padding: '6px 20px',
+                                backgroundColor: '#faf9f8',
+                                borderTop: '1px solid #edebe9',
+                                borderBottom: '1px solid #edebe9',
+                                fontSize: '11px',
+                                fontWeight: 600,
+                                textTransform: 'uppercase',
+                                letterSpacing: '0.4px',
+                                color: '#605e5c',
+                            }}>
+                                {group.category}
+                            </div>
+                            {group.actions.map((action) => renderAction(action))}
+                        </div>
+                    ))
                 )}
             </div>
             {renderActionDetails()}
+            <UtilityActionForm
+                action={configuringAction}
+                config={props.utilityConfig || {}}
+                isOpen={configuringAction !== null}
+                onDismiss={() => setConfiguringAction(null)}
+                onApply={(action) => props.onConfiguredAction?.(action)}
+            />
         </>
     );
 };
