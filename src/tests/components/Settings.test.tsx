@@ -270,8 +270,9 @@ describe('Settings component', () => {
 
     render(<Settings storageService={mockStorageService} />);
 
-    const toggles = screen.getAllByRole('switch');
-    fireEvent.click(toggles[0]);
+    // Select by accessible name rather than position - the settings panel gains
+    // toggles over time and an index-based lookup silently targets the wrong one.
+    fireEvent.click(screen.getByRole('switch', { name: 'Show Action Search Bar' }));
 
     await waitFor(() => {
       expect(mockStorageService.updateSettings).toHaveBeenCalledWith({ showActionSearchBar: false });

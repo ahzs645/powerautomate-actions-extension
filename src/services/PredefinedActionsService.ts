@@ -1,17 +1,34 @@
-import { IActionModel } from "../models";
+import { IActionModel, ISettingsModel } from "../models";
+import {
+    IUtilityFunctionConfig,
+    UtilityActionsService,
+    utilityActionsService,
+} from "./UtilityActionsService";
+
+/** Prefix for per-source cache entries. */
+const CACHE_PREFIX = 'predefinedActionsCache';
+/** Legacy single-source cache keys, cleared when the whole cache is dropped. */
+const LEGACY_CACHE_KEY = 'predefinedActionsCache';
+const LEGACY_TIMESTAMP_KEY = 'predefinedActionsCacheTimestamp';
 
 export class PredefinedActionsService {
     private CACHE_DURATION_MS = 60 * 60 * 1000;
-    private CACHE_KEY = "predefinedActionsCache";
-    private CACHE_TIMESTAMP_KEY = "predefinedActionsCacheTimestamp";
 
+    constructor(private utilityActions: UtilityActionsService = utilityActionsService) {
+    }
+
+    /**
+     * Fetch remote predefined actions for a single URL.
+     * Falls back to the cached copy (expired or not) when the fetch fails, so a
+     * flaky network never empties the list.
+     */
     public async fetchPredefinedActions(url: string): Promise<IActionModel[]> {
         if (!url || url.trim() === '') {
             return [];
         }
 
         try {
-            const cachedData = await this.getCachedActions();
+            const cachedData = await this.getCachedActions(url);
             if (cachedData) {
                 return cachedData;
             }
@@ -22,7 +39,7 @@ export class PredefinedActionsService {
             }
 
             const data = await response.json();
-            
+
             if (!Array.isArray(data)) {
                 throw new Error('Invalid JSON structure: expected array of actions');
             }
@@ -32,18 +49,95 @@ export class PredefinedActionsService {
             }
 
             const normalizedData = this.normalizeActions(data);
-            await this.cacheActions(normalizedData);
+            await this.cacheActions(url, normalizedData);
             return normalizedData;
         } catch (error) {
             console.error('Error fetching predefined actions:', error);
-            const cachedData = await this.getCachedActionsIgnoreExpiry();
+            const cachedData = await this.getCachedActionsIgnoreExpiry(url);
             return cachedData || [];
         }
     }
 
     public async refreshPredefinedActions(url: string): Promise<IActionModel[]> {
-        await this.clearCache();
+        await this.clearCache(url);
         return await this.fetchPredefinedActions(url);
+    }
+
+    /**
+     * The full predefined list shown in the UI: the bundled utility pack (with
+     * the user's function config applied) followed by any remote sources.
+     *
+     * Remote sources are fetched concurrently; one failing source does not stop
+     * the others, and the bundled pack is always available offline.
+     */
+    public async getAllActions(settings: ISettingsModel): Promise<IActionModel[]> {
+        const actions: IActionModel[] = [];
+
+        if (settings.showUtilityActions !== false) {
+            actions.push(...this.getUtilityActions(settings));
+        }
+
+        if (settings.showPredefinedActions !== false) {
+            const urls = this.parseUrls(settings.predefinedActionsUrl);
+            const results = await Promise.all(urls.map(url => this.fetchPredefinedActions(url)));
+            for (const result of results) {
+                actions.push(...result);
+            }
+        }
+
+        return actions;
+    }
+
+    /** Bundled utility pack, resolved against the user's function configuration. */
+    public getUtilityActions(settings: ISettingsModel): IActionModel[] {
+        const config = this.toFunctionConfig(settings);
+        const actions = this.utilityActions.getActions(config);
+
+        if (settings.showUtilityParseJsonActions) {
+            actions.push(...this.utilityActions.getParseJsonActions(config));
+        }
+
+        return this.normalizeActions(actions);
+    }
+
+    /** Map persisted settings onto the shape UtilityActionsService expects. */
+    public toFunctionConfig(settings: ISettingsModel): IUtilityFunctionConfig {
+        return {
+            baseUrl: settings.utilityFunctionBaseUrl,
+            key: settings.utilityFunctionKey,
+            keyMode: settings.utilityFunctionKeyMode,
+            baseUrlParameterName: settings.utilityFunctionBaseUrlParameterName,
+            keyParameterName: settings.utilityFunctionKeyParameterName,
+            includeUnsafe: settings.includeUnsafeUtilityActions,
+        };
+    }
+
+    /** Refresh every remote source, then rebuild the full list. */
+    public async refreshAll(settings: ISettingsModel): Promise<IActionModel[]> {
+        const urls = this.parseUrls(settings.predefinedActionsUrl);
+        await Promise.all(urls.map(url => this.clearCache(url)));
+        return this.getAllActions(settings);
+    }
+
+    /** Distinct categories present in a list, in first-seen order. */
+    public getCategories(actions: IActionModel[]): string[] {
+        const categories: string[] = [];
+        for (const action of actions) {
+            const category = action.category;
+            if (category && categories.indexOf(category) === -1) {
+                categories.push(category);
+            }
+        }
+        return categories;
+    }
+
+    /** Split the setting's newline/comma separated URL list. */
+    public parseUrls(value?: string): string[] {
+        if (!value) { return []; }
+        return value
+            .split(/[\n,]/)
+            .map(url => url.trim())
+            .filter(url => url.length > 0);
     }
 
     private normalizeActions(actions: IActionModel[]): IActionModel[] {
@@ -54,11 +148,33 @@ export class PredefinedActionsService {
         }));
     }
 
-    private async getCachedActions(): Promise<IActionModel[] | null> {
+    /**
+     * Cache key derived from the URL so multiple sources cannot overwrite each
+     * other. The previous scheme used one global key for every source.
+     */
+    private cacheKeyFor(url: string): string {
+        return `${CACHE_PREFIX}:${this.hash(url)}`;
+    }
+
+    private timestampKeyFor(url: string): string {
+        return `${CACHE_PREFIX}:${this.hash(url)}:timestamp`;
+    }
+
+    private hash(value: string): string {
+        let hash = 5381;
+        for (let i = 0; i < value.length; i++) {
+            hash = ((hash << 5) + hash + value.charCodeAt(i)) | 0;
+        }
+        return (hash >>> 0).toString(36);
+    }
+
+    private async getCachedActions(url: string): Promise<IActionModel[] | null> {
         try {
-            const result = await chrome.storage.local.get([this.CACHE_KEY, this.CACHE_TIMESTAMP_KEY]);
-            const cachedActions = result[this.CACHE_KEY];
-            const timestamp = result[this.CACHE_TIMESTAMP_KEY];
+            const cacheKey = this.cacheKeyFor(url);
+            const timestampKey = this.timestampKeyFor(url);
+            const result = await chrome.storage.local.get([cacheKey, timestampKey]);
+            const cachedActions = result[cacheKey];
+            const timestamp = result[timestampKey];
 
             if (!cachedActions || !timestamp) {
                 return null;
@@ -76,30 +192,42 @@ export class PredefinedActionsService {
         }
     }
 
-    private async getCachedActionsIgnoreExpiry(): Promise<IActionModel[] | null> {
+    private async getCachedActionsIgnoreExpiry(url: string): Promise<IActionModel[] | null> {
         try {
-            const result = await chrome.storage.local.get([this.CACHE_KEY]);
-            return result[this.CACHE_KEY] || null;
+            const cacheKey = this.cacheKeyFor(url);
+            const result = await chrome.storage.local.get([cacheKey]);
+            return result[cacheKey] || null;
         } catch (error) {
             console.error('Error reading cache:', error);
             return null;
         }
     }
 
-    private async cacheActions(actions: IActionModel[]): Promise<void> {
+    private async cacheActions(url: string, actions: IActionModel[]): Promise<void> {
         try {
             await chrome.storage.local.set({
-                [this.CACHE_KEY]: actions,
-                [this.CACHE_TIMESTAMP_KEY]: Date.now()
+                [this.cacheKeyFor(url)]: actions,
+                [this.timestampKeyFor(url)]: Date.now()
             });
         } catch (error) {
             console.error('Error caching actions:', error);
         }
     }
 
-    public async clearCache(): Promise<void> {
+    /** Clear one source's cache, or every source's when no URL is given. */
+    public async clearCache(url?: string): Promise<void> {
         try {
-            await chrome.storage.local.remove([this.CACHE_KEY, this.CACHE_TIMESTAMP_KEY]);
+            if (url) {
+                await chrome.storage.local.remove([this.cacheKeyFor(url), this.timestampKeyFor(url)]);
+                return;
+            }
+
+            const all = await chrome.storage.local.get(null);
+            const keys = Object.keys(all).filter(key => key.indexOf(CACHE_PREFIX) === 0);
+            if (keys.length > 0) {
+                await chrome.storage.local.remove(keys);
+            }
+            await chrome.storage.local.remove([LEGACY_CACHE_KEY, LEGACY_TIMESTAMP_KEY]);
         } catch (error) {
             console.error('Error clearing cache:', error);
         }

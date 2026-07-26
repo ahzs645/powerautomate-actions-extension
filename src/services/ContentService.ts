@@ -103,15 +103,54 @@ export class ContentService implements IContentService {
         }
 
         for (let action of messageContent) {
-            const actionJson = JSON.parse(action.actionJson);
-            itemToSave.serializedValue.actions[action.title] = actionJson.operationDefinition;
-            itemToSave.serializedValue.actions[action.title].runAfter = {};
-            if (actionJson.operationDefinition.inputs.host && actionJson.operationDefinition.inputs.host.connectionName) {
-                itemToSave.serializedValue.actions[action.title].inputs.host.connection = actionJson.operationDefinition.inputs.host.connectionName;
+            let actionJson: any;
+            try {
+                actionJson = JSON.parse(action.actionJson);
+            } catch (e) {
+                console.log(`Skipping action with invalid JSON: ${action.title}`);
+                continue;
+            }
+
+            const operationDefinition = actionJson?.operationDefinition;
+            if (!operationDefinition) {
+                console.log(`Skipping action without an operationDefinition: ${action.title}`);
+                continue;
+            }
+
+            // Action keys must be unique within the container and cannot contain
+            // spaces, otherwise same-titled presets overwrite one another.
+            const actionName = this.getUniqueActionName(action.title, itemToSave.serializedValue.actions);
+
+            itemToSave.serializedValue.actions[actionName] = operationDefinition;
+            itemToSave.serializedValue.actions[actionName].runAfter = {};
+
+            // Scope, Compose and Http actions have no `inputs.host`, so guard the
+            // whole path rather than assuming a connector-backed action.
+            const host = operationDefinition.inputs?.host;
+            if (host?.connectionName) {
+                itemToSave.serializedValue.actions[actionName].inputs.host.connection = host.connectionName;
             }
         }
 
+        if (Object.keys(itemToSave.serializedValue.actions).length === 0) {
+            console.log('No usable actions to insert into the clipboard');
+            return;
+        }
+
         return JSON.stringify(itemToSave);
+    }
+
+    /**
+     * Build a designer-safe, collision-free action key from a preset title.
+     * "Merge PDFs" -> "Merge_PDFs", and a second one becomes "Merge_PDFs_1".
+     */
+    private getUniqueActionName = (title: string, existing: Record<string, any>): string => {
+        const base = (title || 'Action').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'Action';
+        if (!existing[base]) { return base; }
+
+        let suffix = 1;
+        while (existing[`${base}_${suffix}`]) { suffix++; }
+        return `${base}_${suffix}`;
     }
 
     private isCorrectReceiver = (message: ICommunicationChromeMessage) => {

@@ -1,0 +1,521 @@
+{
+  "version": 1,
+  "packId": "file-and-utility-functions",
+  "packName": "File & Utility Azure Functions",
+  "description": "HTTP presets for the File And Utility Azure Functions app (Python v2 Function App). Each preset is an HTTP action pre-shaped for one endpoint.",
+  "baseUrlToken": "{{functionBaseUrl}}",
+  "keyToken": "{{functionKey}}",
+  "categories": [
+    "JSON & Arrays",
+    "Excel & CSV",
+    "PDF",
+    "Word & HTML",
+    "Images & Archives"
+  ],
+  "actions": [
+    {
+      "route": "left_join_json_array",
+      "title": "Left Join JSON Arrays",
+      "category": "JSON & Arrays",
+      "description": "Left joins two JSON arrays on a primary key, preserving every record from the initial array and suffixing conflicting column names.",
+      "returns": "jsonArray",
+      "parameters": [
+        { "name": "primary_key", "type": "string", "required": true, "description": "Field present in both arrays to join on.", "default": "ID" },
+        { "name": "initial_json", "type": "array", "required": true, "description": "Left-hand array. Every record is kept.", "default": "@outputs('InitialArray')" },
+        { "name": "update_json", "type": "array", "required": true, "description": "Right-hand array. Matching records are merged in.", "default": "@outputs('UpdateArray')" }
+      ]
+    },
+    {
+      "route": "upsert_json_array",
+      "title": "Upsert JSON Array",
+      "category": "JSON & Arrays",
+      "description": "Updates matching records in an array by primary key and appends records that do not yet exist.",
+      "returns": "jsonArray",
+      "parameters": [
+        { "name": "primary_key", "type": "string", "required": true, "description": "Field to match records on.", "default": "ID" },
+        { "name": "initial_json", "type": "array", "required": true, "description": "Array to upsert into.", "default": "@outputs('InitialArray')" },
+        { "name": "update_json", "type": "array", "required": true, "description": "Array of records to apply.", "default": "@outputs('UpdateArray')" }
+      ]
+    },
+    {
+      "route": "aggregations",
+      "title": "Aggregations",
+      "category": "JSON & Arrays",
+      "description": "Computes count, min, max, average, median and standard deviation over named columns of a JSON array. Accepts an array of arrays to aggregate several sets in one call.",
+      "returns": "object",
+      "parameters": [
+        { "name": "data", "type": "array", "required": true, "description": "Array of objects, or an array of arrays of objects.", "default": "@outputs('JSON_Array')" },
+        { "name": "count", "type": "stringArray", "required": false, "description": "Columns to count.", "default": [] },
+        { "name": "min", "type": "stringArray", "required": false, "description": "Columns to take the minimum of.", "default": [] },
+        { "name": "max", "type": "stringArray", "required": false, "description": "Columns to take the maximum of.", "default": [] },
+        { "name": "avg", "type": "stringArray", "required": false, "description": "Columns to average.", "default": [] },
+        { "name": "med", "type": "stringArray", "required": false, "description": "Columns to take the median of.", "default": [] },
+        { "name": "stdev", "type": "stringArray", "required": false, "description": "Columns to take the standard deviation of.", "default": [] }
+      ]
+    },
+    {
+      "route": "regex_find_and_replace",
+      "title": "Regex Find and Replace",
+      "category": "JSON & Arrays",
+      "description": "Returns every regex match with its start and end index, and optionally the string after replacement. Power Automate has no native regex, so this covers a real gap.",
+      "returns": "object",
+      "parameters": [
+        { "name": "string", "type": "string", "required": true, "description": "Text to search.", "default": "@outputs('String')" },
+        { "name": "regex", "type": "string", "required": true, "description": "Python regular expression pattern.", "default": "@outputs('RegexString')" },
+        { "name": "replace_text", "type": "string", "required": false, "description": "Replacement text. Omit to find only.", "default": "" }
+      ]
+    },
+    {
+      "route": "index_duplicates",
+      "title": "Index Duplicates",
+      "category": "JSON & Arrays",
+      "description": "Adds an occurrence counter to each record so repeated values of a field become 1, 2, 3. Useful for de-duplicating or naming split files.",
+      "returns": "jsonArray",
+      "parameters": [
+        { "name": "json", "type": "array", "required": true, "description": "Array of objects to index.", "default": "@outputs('JSON_Array')" },
+        { "name": "index_field", "type": "string", "required": true, "description": "Field whose duplicates are counted.", "default": "Name" },
+        { "name": "index_name", "type": "string", "required": false, "description": "Name of the added counter field. Defaults to Index_<index_field>.", "default": "Index" }
+      ]
+    },
+    {
+      "route": "json_html_to_text",
+      "title": "HTML Fields to Plain Text",
+      "category": "JSON & Arrays",
+      "description": "Strips HTML from named fields across an array of records and returns the array with those fields converted to clean text.",
+      "returns": "jsonArray",
+      "parameters": [
+        { "name": "data", "type": "array", "required": true, "description": "Array of objects.", "default": "@outputs('JSON_Array')" },
+        { "name": "fields", "type": "stringArray", "required": true, "description": "Field names whose HTML should be flattened.", "default": ["Description"] }
+      ]
+    },
+    {
+      "route": "py_transform_array",
+      "title": "Python Transform Array",
+      "category": "JSON & Arrays",
+      "description": "Applies a Python expression to every item of an array.",
+      "returns": "jsonArray",
+      "unsafe": "This endpoint runs your expression through Python eval() with no sandbox. Anyone who can call it can execute arbitrary code on the Function App. Only enable it on a function you control, and never expose the key.",
+      "parameters": [
+        { "name": "transform_from", "type": "array", "required": true, "description": "Array to transform.", "default": "@outputs('JSON_Array')" },
+        { "name": "transformation", "type": "string", "required": true, "description": "Python expression over `item`, e.g. {'name': item['Name'].upper()}", "default": "{'name': item['Name']}" }
+      ]
+    },
+    {
+      "route": "py_filter",
+      "title": "Python Filter Array",
+      "category": "JSON & Arrays",
+      "description": "Filters an array with a Python boolean expression. Returns { values: [...] }.",
+      "returns": "values",
+      "unsafe": "This endpoint runs your expression through Python eval() with no sandbox. Anyone who can call it can execute arbitrary code on the Function App. Only enable it on a function you control, and never expose the key.",
+      "parameters": [
+        { "name": "filter_from", "type": "array", "required": true, "description": "Array to filter.", "default": "@outputs('JSON_Array')" },
+        { "name": "filter_query", "type": "string", "required": true, "description": "Python boolean expression over `item`, e.g. item['Amount'] >= 100", "default": "item['Amount'] >= 100" }
+      ]
+    },
+    {
+      "route": "for_each_lookup",
+      "title": "For Each Lookup",
+      "category": "JSON & Arrays",
+      "description": "For every value in a loop array, returns the first matching record from a lookup array. Replaces a nested Apply to each with one call.",
+      "returns": "values",
+      "unsafe": "This endpoint runs your expression through Python eval() with no sandbox. Anyone who can call it can execute arbitrary code on the Function App. Only enable it on a function you control, and never expose the key.",
+      "parameters": [
+        { "name": "loop_array", "type": "array", "required": true, "description": "Values to look up, one result each.", "default": "@outputs('LoopArray')" },
+        { "name": "lookup_from", "type": "array", "required": true, "description": "Array to search.", "default": "@outputs('LookupArray')" },
+        { "name": "lookup_query", "type": "string", "required": true, "description": "Python boolean expression over `item` and `LoopValue`.", "default": "item['ID'] == LoopValue" }
+      ]
+    },
+    {
+      "route": "for_each_filter",
+      "title": "For Each Filter",
+      "category": "JSON & Arrays",
+      "description": "For every value in a loop array, returns all matching records from a source array. Replaces Apply to each wrapping Filter array.",
+      "returns": "values",
+      "unsafe": "This endpoint runs your expression through Python eval() with no sandbox. Anyone who can call it can execute arbitrary code on the Function App. Only enable it on a function you control, and never expose the key.",
+      "parameters": [
+        { "name": "loop_array", "type": "array", "required": true, "description": "Values to filter for.", "default": "@outputs('LoopArray')" },
+        { "name": "filter_from", "type": "array", "required": true, "description": "Array to filter.", "default": "@outputs('JSON_Array')" },
+        { "name": "filter_query", "type": "string", "required": true, "description": "Python boolean expression over `item` and `LoopValue`.", "default": "item['ID'] == LoopValue" }
+      ]
+    },
+
+    {
+      "route": "csv_to_json",
+      "title": "CSV to JSON",
+      "category": "Excel & CSV",
+      "description": "Parses a CSV string into a JSON array, with control over delimiter, line break, header row, skipped rows and type detection.",
+      "returns": "jsonArray",
+      "parameters": [
+        { "name": "file_content", "type": "string", "required": true, "description": "CSV text. Wrap a file in @{...} so it resolves to a string.", "default": "@{body('Get_file_content')}" },
+        { "name": "delimiter", "type": "string", "required": false, "description": "Column delimiter.", "default": "," },
+        { "name": "linebreak", "type": "string", "required": false, "description": "Row delimiter.", "default": "\r\n" },
+        { "name": "first_row_headers", "type": "string", "required": false, "description": "YES to treat the first row as headers.", "default": "YES" },
+        { "name": "skip_top_rows", "type": "number", "required": false, "description": "Rows to skip before the header.", "default": 0 },
+        { "name": "skip_bottom_rows", "type": "number", "required": false, "description": "Rows to drop from the end.", "default": 0 },
+        { "name": "type_detect", "type": "string", "required": false, "description": "YES to infer numbers and dates.", "default": "YES" }
+      ]
+    },
+    {
+      "route": "json_to_excel_table",
+      "title": "JSON to Excel Table",
+      "category": "Excel & CSV",
+      "description": "Writes a JSON array into a formatted Excel table. Omit file_content to create a new workbook, or supply one to add a sheet to an existing workbook.",
+      "returns": "file",
+      "parameters": [
+        { "name": "json", "type": "array", "required": true, "description": "Array of objects to write.", "default": "@outputs('JSON_Array')" },
+        { "name": "sheet_name", "type": "string", "required": true, "description": "Worksheet name.", "default": "Sheet1" },
+        { "name": "table_name", "type": "string", "required": true, "description": "Excel table name.", "default": "Table1" },
+        { "name": "file_content", "type": "file", "required": false, "description": "Existing workbook to add the sheet to. Omit to create a new one.", "default": null },
+        { "name": "numeric_columns", "type": "stringArray", "required": false, "description": "Columns to force to a numeric type.", "default": [] }
+      ]
+    },
+    {
+      "route": "excel_to_csvs",
+      "title": "Excel to CSVs",
+      "category": "Excel & CSV",
+      "description": "Converts every worksheet of a workbook into a separate CSV.",
+      "returns": "fileArray",
+      "parameters": [
+        { "name": "file_content", "type": "file", "required": true, "description": "Excel workbook.", "default": "@body('Get_file_content')" }
+      ]
+    },
+    {
+      "route": "get_excel_sheet_data",
+      "title": "Get Excel Sheet Data",
+      "category": "Excel & CSV",
+      "description": "Reads one worksheet into JSON with row and column trimming, column selection, filtering, skip and top. Handles .xls as well as .xlsx.",
+      "returns": "jsonArray",
+      "parameters": [
+        { "name": "file", "type": "file", "required": true, "description": "Workbook. Note this endpoint uses `file`, not `file_content`.", "default": "@body('Get_file_content')" },
+        { "name": "sheet_name", "type": "string", "required": true, "description": "Worksheet to read.", "default": "Sheet1" },
+        { "name": "skip_top_rows", "type": "number", "required": false, "description": "Rows to skip from the top.", "default": 0 },
+        { "name": "skip_bottom_rows", "type": "number", "required": false, "description": "Rows to drop from the bottom.", "default": 0 },
+        { "name": "skip_left_columns", "type": "number", "required": false, "description": "Columns to skip from the left.", "default": 0 },
+        { "name": "skip_right_columns", "type": "number", "required": false, "description": "Columns to drop from the right.", "default": 0 },
+        { "name": "select_columns", "type": "string", "required": false, "description": "Comma separated column names to keep.", "default": "" },
+        { "name": "remove_columns", "type": "string", "required": false, "description": "Comma separated column names to drop.", "default": "" },
+        { "name": "filter_query", "type": "string", "required": false, "description": "Filter expression applied to rows.", "default": "" },
+        { "name": "skip_records_count", "type": "number", "required": false, "description": "Records to skip.", "default": 0 },
+        { "name": "top_records_count", "type": "number", "required": false, "description": "Maximum records to return. 0 for all.", "default": 0 }
+      ]
+    },
+    {
+      "route": "get_or_edit_excel_sheet_names",
+      "title": "Get or Edit Excel Sheet Names",
+      "category": "Excel & CSV",
+      "description": "Returns worksheet names, or renames them by index or by regex replacement.",
+      "returns": "object",
+      "parameters": [
+        { "name": "file_content", "type": "file", "required": true, "description": "Excel workbook.", "default": "@body('Get_file_content')" },
+        { "name": "index_edit", "type": "array", "required": false, "description": "Sheet indexes to rename.", "default": [] },
+        { "name": "name_edit", "type": "stringArray", "required": false, "description": "New names, paired with index_edit.", "default": [] },
+        { "name": "regex", "type": "string", "required": false, "description": "Pattern matched against sheet names.", "default": "" },
+        { "name": "replace_text", "type": "string", "required": false, "description": "Replacement for matched sheet names.", "default": "" }
+      ]
+    },
+    {
+      "route": "append_or_remove_excel_sheets",
+      "title": "Append or Remove Excel Sheets",
+      "category": "Excel & CSV",
+      "description": "Combines worksheets across workbooks. Use select to keep sheets, remove to drop them, and pass several workbooks to merge them into one.",
+      "returns": "file",
+      "parameters": [
+        { "name": "file_content", "type": "fileArray", "required": true, "description": "One or more workbooks. Always an array for this endpoint.", "default": ["@body('Get_file_content')"] },
+        { "name": "select", "type": "stringArray", "required": false, "description": "Sheet names to keep.", "default": [] },
+        { "name": "remove", "type": "stringArray", "required": false, "description": "Sheet names to drop.", "default": [] }
+      ]
+    },
+
+    {
+      "route": "merge_pdf_fitz",
+      "title": "Merge PDFs",
+      "category": "PDF",
+      "description": "Merges several PDFs into one, carrying form field values across.",
+      "returns": "file",
+      "parameters": [
+        { "name": "file_content", "type": "fileArray", "required": true, "description": "PDFs to merge, in order.", "default": ["@body('Get_file_content')"] }
+      ]
+    },
+    {
+      "route": "split_pdf_fitz",
+      "title": "Split PDF",
+      "category": "PDF",
+      "description": "Splits a PDF by explicit page numbers, by fixed chunk size, or at pages matching text or a regex. Supply exactly one of pages, split_chunks, split_text or split_regex.",
+      "returns": "fileArray",
+      "parameters": [
+        { "name": "file_content", "type": "file", "required": true, "description": "PDF to split.", "default": "@body('Get_file_content')" },
+        { "name": "pages", "type": "array", "required": false, "description": "Page numbers to split at, e.g. [2, 5].", "default": [2] },
+        { "name": "split_chunks", "type": "number", "required": false, "description": "Split into fixed page counts.", "default": null },
+        { "name": "split_text", "type": "string", "required": false, "description": "Split before each page containing this text.", "default": null },
+        { "name": "split_regex", "type": "string", "required": false, "description": "Split before each page matching this pattern.", "default": null }
+      ]
+    },
+    {
+      "route": "rotate_pdf_pages",
+      "title": "Rotate PDF Pages",
+      "category": "PDF",
+      "description": "Rotates specific pages by a given number of degrees.",
+      "returns": "file",
+      "parameters": [
+        { "name": "file_content", "type": "file", "required": true, "description": "PDF to rotate.", "default": "@body('Get_file_content')" },
+        { "name": "rotations", "type": "array", "required": true, "description": "Array of { page, rotation } objects.", "default": [{ "page": 1, "rotation": 90 }] }
+      ]
+    },
+    {
+      "route": "replace_text_pdf",
+      "title": "Replace Text in PDF",
+      "category": "PDF",
+      "description": "Finds and replaces text in a PDF by literal string or regex, redrawing the affected spans.",
+      "returns": "file",
+      "parameters": [
+        { "name": "file_content", "type": "file", "required": true, "description": "PDF to edit.", "default": "@body('Get_file_content')" },
+        { "name": "search_text", "type": "string", "required": false, "description": "Literal text to find.", "default": "" },
+        { "name": "search_regex", "type": "string", "required": false, "description": "Pattern to find. Takes precedence over search_text.", "default": "" },
+        { "name": "replace_text", "type": "string", "required": true, "description": "Replacement text.", "default": "" }
+      ]
+    },
+    {
+      "route": "extract_pdf_elements",
+      "title": "Extract PDF Elements",
+      "category": "PDF",
+      "description": "Extracts text, blocks and document metadata from a PDF, with per-block coordinates.",
+      "returns": "object",
+      "parameters": [
+        { "name": "file_content", "type": "file", "required": true, "description": "PDF to read.", "default": "@body('Get_file_content')" }
+      ]
+    },
+    {
+      "route": "pdf_to_images",
+      "title": "PDF to Images",
+      "category": "PDF",
+      "description": "Renders every page of a PDF to a PNG at 2x zoom.",
+      "returns": "fileArray",
+      "parameters": [
+        { "name": "file_content", "type": "file", "required": true, "description": "PDF to render.", "default": "@body('Get_file_content')" }
+      ]
+    },
+    {
+      "route": "images_to_pdf",
+      "title": "Images to PDF",
+      "category": "PDF",
+      "description": "Builds a PDF from an array of images, one page each.",
+      "returns": "file",
+      "parameters": [
+        { "name": "file_content", "type": "fileArray", "required": true, "description": "Images in page order.", "default": ["@body('Get_file_content')"] },
+        { "name": "fit_to_page", "type": "string", "required": false, "description": "YES to scale each image to the page.", "default": "YES" },
+        { "name": "orientation", "type": "string", "required": false, "description": "PORTRAIT or LANDSCAPE.", "default": "PORTRAIT" }
+      ]
+    },
+    {
+      "route": "add_images_to_pdf",
+      "title": "Add Images to PDF",
+      "category": "PDF",
+      "description": "Stamps images onto a PDF at explicit coordinates. Useful for signatures and logos.",
+      "returns": "file",
+      "parameters": [
+        { "name": "file_content", "type": "file", "required": true, "description": "PDF to stamp.", "default": "@body('Get_file_content')" },
+        { "name": "image_boxes", "type": "array", "required": true, "description": "Array of { coordinates: { x0, y0, x1, y1, page }, file_content }.", "default": [{ "coordinates": { "x0": 0, "y0": 0, "x1": 100, "y1": 50, "page": 1 }, "file_content": "@body('Get_image_content')" }] },
+        { "name": "resize", "type": "boolean", "required": false, "description": "Scale the image to the box.", "default": true }
+      ]
+    },
+    {
+      "route": "pdf_to_word",
+      "title": "PDF to Word",
+      "category": "PDF",
+      "description": "Converts a PDF to a .docx, preserving layout where it can.",
+      "returns": "file",
+      "parameters": [
+        { "name": "file_content", "type": "file", "required": true, "description": "PDF to convert.", "default": "@body('Get_file_content')" }
+      ]
+    },
+    {
+      "route": "pdf_to_html",
+      "title": "PDF to HTML",
+      "category": "PDF",
+      "description": "Converts a PDF to HTML.",
+      "returns": "html",
+      "parameters": [
+        { "name": "file_content", "type": "file", "required": true, "description": "PDF to convert.", "default": "@body('Get_file_content')" }
+      ]
+    },
+    {
+      "route": "make_pdf_text_more_distinct",
+      "title": "Sharpen PDF Text for OCR",
+      "category": "PDF",
+      "description": "Re-renders a PDF at a higher DPI to make text crisper before OCR.",
+      "returns": "file",
+      "parameters": [
+        { "name": "file_content", "type": "file", "required": true, "description": "PDF to sharpen.", "default": "@body('Get_file_content')" },
+        { "name": "dpi", "type": "number", "required": false, "description": "Render resolution.", "default": 300 }
+      ]
+    },
+    {
+      "route": "document_intel_text_replica",
+      "title": "OCR Spatial Text Replica",
+      "category": "PDF",
+      "description": "Turns Azure Document Intelligence analyzeResult output into a spatially laid out plain text replica, so an LLM sees the page the way a human does. Send the analyzeResult directly as the body.",
+      "returns": "text",
+      "rawBody": "@outputs('Analyze_Document_AnalyzeResult')",
+      "parameters": []
+    },
+
+    {
+      "route": "word_to_html",
+      "title": "Word to HTML",
+      "category": "Word & HTML",
+      "description": "Converts a .docx to HTML via Mammoth, adding table gridlines.",
+      "returns": "html",
+      "parameters": [
+        { "name": "file_content", "type": "file", "required": true, "description": "Word document.", "default": "@body('Get_file_content')" }
+      ]
+    },
+    {
+      "route": "html_to_word",
+      "title": "HTML to Word",
+      "category": "Word & HTML",
+      "description": "Builds a .docx from an HTML string.",
+      "returns": "file",
+      "parameters": [
+        { "name": "html", "type": "string", "required": true, "description": "HTML to convert.", "default": "@{outputs('HTML')}" }
+      ]
+    },
+    {
+      "route": "merge_word",
+      "title": "Merge Word Documents",
+      "category": "Word & HTML",
+      "description": "Merges .docx files into one, with control over which document's headers and footers survive.",
+      "returns": "file",
+      "parameters": [
+        { "name": "file_content", "type": "fileArray", "required": true, "description": "Documents to merge, in order.", "default": ["@body('Get_file_content')"] },
+        { "name": "headers_footers", "type": "string", "required": false, "description": "FIRST, LAST, ALL or NONE.", "default": "FIRST" }
+      ]
+    },
+    {
+      "route": "split_word",
+      "title": "Split Word Document",
+      "category": "Word & HTML",
+      "description": "Splits a .docx at paragraphs matching text or a regex, with an offset to shift the cut point.",
+      "returns": "fileArray",
+      "parameters": [
+        { "name": "file_content", "type": "file", "required": true, "description": "Document to split.", "default": "@body('Get_file_content')" },
+        { "name": "split_text", "type": "string", "required": false, "description": "Literal text to split on.", "default": "" },
+        { "name": "split_regex", "type": "string", "required": false, "description": "Pattern to split on.", "default": "" },
+        { "name": "split_offset", "type": "number", "required": false, "description": "Paragraphs to shift the split point by.", "default": 0 }
+      ]
+    },
+    {
+      "route": "replace_text_word",
+      "title": "Replace Text in Word",
+      "category": "Word & HTML",
+      "description": "Finds and replaces text in a .docx by literal string or regex, preserving run formatting.",
+      "returns": "file",
+      "parameters": [
+        { "name": "file_content", "type": "file", "required": true, "description": "Document to edit.", "default": "@body('Get_file_content')" },
+        { "name": "search_text", "type": "string", "required": false, "description": "Literal text to find.", "default": "" },
+        { "name": "search_regex", "type": "string", "required": false, "description": "Pattern to find. Takes precedence over search_text.", "default": "" },
+        { "name": "replace_text", "type": "string", "required": true, "description": "Replacement text.", "default": "" }
+      ]
+    },
+    {
+      "route": "extract_word_elements",
+      "title": "Extract Word Elements",
+      "category": "Word & HTML",
+      "description": "Extracts paragraphs, tables, headings and styles from a .docx as structured JSON.",
+      "returns": "object",
+      "parameters": [
+        { "name": "file_content", "type": "file", "required": true, "description": "Word document.", "default": "@body('Get_file_content')" }
+      ]
+    },
+    {
+      "route": "extract_main_word_xml",
+      "title": "Extract Word XML",
+      "category": "Word & HTML",
+      "description": "Returns the raw document.xml of a .docx. Pair with Update Word XML to edit a document programmatically or with an LLM.",
+      "returns": "object",
+      "parameters": [
+        { "name": "file_content", "type": "file", "required": true, "description": "Word document.", "default": "@body('Get_file_content')" }
+      ]
+    },
+    {
+      "route": "update_word_xml",
+      "title": "Update Word XML",
+      "category": "Word & HTML",
+      "description": "Writes modified document.xml back into a .docx. The other half of Extract Word XML.",
+      "returns": "file",
+      "parameters": [
+        { "name": "file_content", "type": "file", "required": true, "description": "Original Word document.", "default": "@body('Get_file_content')" },
+        { "name": "updated_xml", "type": "string", "required": true, "description": "Replacement document.xml.", "default": "@outputs('UpdatedXml')" }
+      ]
+    },
+    {
+      "route": "html_tracked_changes",
+      "title": "HTML Tracked Changes",
+      "category": "Word & HTML",
+      "description": "Diffs two HTML strings and returns marked-up HTML showing insertions and deletions.",
+      "returns": "html",
+      "parameters": [
+        { "name": "old_html", "type": "string", "required": true, "description": "Original HTML.", "default": "@{outputs('OldHtml')}" },
+        { "name": "new_html", "type": "string", "required": true, "description": "Revised HTML.", "default": "@{outputs('NewHtml')}" }
+      ]
+    },
+    {
+      "route": "msg_to_html",
+      "title": "MSG to HTML",
+      "category": "Word & HTML",
+      "description": "Parses an Outlook .msg file into subject, sender, recipients, timestamps, body HTML and attachments.",
+      "returns": "object",
+      "parameters": [
+        { "name": "file_content", "type": "file", "required": true, "description": "Outlook .msg file.", "default": "@body('Get_file_content')" }
+      ]
+    },
+
+    {
+      "route": "resize_image",
+      "title": "Resize Image",
+      "category": "Images & Archives",
+      "description": "Resizes an image by explicit dimensions, a max bounding box, or a scale factor.",
+      "returns": "file",
+      "parameters": [
+        { "name": "file_content", "type": "file", "required": true, "description": "Image to resize.", "default": "@body('Get_file_content')" },
+        { "name": "width", "type": "number", "required": false, "description": "Target width in pixels.", "default": 200 },
+        { "name": "height", "type": "number", "required": false, "description": "Target height in pixels.", "default": 200 },
+        { "name": "fit_mode", "type": "string", "required": false, "description": "STRETCH, CONTAIN or COVER.", "default": "CONTAIN" },
+        { "name": "max_width", "type": "number", "required": false, "description": "Bounding box width. Alternative to width/height.", "default": null },
+        { "name": "max_height", "type": "number", "required": false, "description": "Bounding box height. Alternative to width/height.", "default": null },
+        { "name": "scale", "type": "number", "required": false, "description": "Scale factor, e.g. 0.5. Alternative to width/height.", "default": null }
+      ]
+    },
+    {
+      "route": "compress_image_or_pdf",
+      "title": "Compress Image or PDF",
+      "category": "Images & Archives",
+      "description": "Reduces file size of an image or PDF. text_pdf_to_jpg rasterises text PDFs for much larger savings at the cost of selectable text.",
+      "returns": "file",
+      "parameters": [
+        { "name": "file_content", "type": "file", "required": true, "description": "Image or PDF to compress.", "default": "@body('Get_file_content')" },
+        { "name": "compression_rate", "type": "number", "required": false, "description": "Quality between 0 and 1. Lower is smaller.", "default": 0.6 },
+        { "name": "text_pdf_to_jpg", "type": "string", "required": false, "description": "YES to rasterise text PDFs. Removes selectable text.", "default": "NO" }
+      ]
+    },
+    {
+      "route": "zip_files",
+      "title": "Zip Files",
+      "category": "Images & Archives",
+      "description": "Packs an array of named files into a single zip archive.",
+      "returns": "file",
+      "parameters": [
+        { "name": "file_array", "type": "array", "required": true, "description": "Array of { name, file_content } entries.", "default": "@outputs('FileArray')" }
+      ]
+    },
+    {
+      "route": "unzip_files",
+      "title": "Unzip Files",
+      "category": "Images & Archives",
+      "description": "Expands a zip archive into an array of files with names and detected content types.",
+      "returns": "fileArray",
+      "parameters": [
+        { "name": "file_content", "type": "file", "required": true, "description": "Zip archive.", "default": "@body('Get_file_content')" }
+      ]
+    }
+  ]
+}
