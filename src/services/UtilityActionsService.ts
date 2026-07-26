@@ -9,11 +9,7 @@
 import catalogJson from '../data/utility-catalog.json';
 import { HttpActionBrandColor, HttpActionIcon } from '../constants/ActionIcons';
 import { IActionModel } from '../models';
-import {
-    IUtilityAction,
-    IUtilityCatalog,
-    IUtilityParameter,
-} from '../models/IUtilityCatalog';
+import { IUtilityAction, IUtilityCatalog } from '../models/IUtilityCatalog';
 
 const catalog = catalogJson as IUtilityCatalog;
 
