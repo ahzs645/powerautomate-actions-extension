@@ -26,6 +26,12 @@ const EMAIL_PATTERN = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
 // token substitution on an already-generated preset.
 const SECRET_QUERY_PATTERN = /([?&](?:code|sig|sv|se|st|skoid|signature|access_token)=)(?!\{\{)(?!@)[^&#\s"']+/gi;
 
+// Azure Function App origins. Tokenizing only the ?code= key is not enough:
+// a preset that keeps the source author's *.azurewebsites.net host would
+// silently send users' documents to someone else's endpoint. The extension
+// substitutes {{functionBaseUrl}} with the user's own Function App origin.
+const FUNCTION_HOST_PATTERN = /https:\/\/[a-z0-9-]+(?:\.[a-z0-9-]+)*\.azurewebsites\.net/gi;
+
 // Tenant identifiers appear in connector `inputs.parameters`, not only in
 // `metadata`: drive ids ("b!..."), drive item ids ("01JWBUU4...") and the
 // tenant's SharePoint hostname.
@@ -43,13 +49,14 @@ function fail(message) {
 }
 
 function parseArgs(argv) {
-    const options = { input: null, output: null, scopes: false, category: null, keepSecrets: false };
+    const options = { input: null, output: null, scopes: false, category: null, keepSecrets: false, mergeCatalog: null };
     for (let i = 0; i < argv.length; i++) {
         const arg = argv[i];
         if (arg === '-o' || arg === '--output') { options.output = argv[++i]; }
         else if (arg === '--scopes') { options.scopes = true; }
         else if (arg === '--category') { options.category = argv[++i]; }
         else if (arg === '--keep-secrets') { options.keepSecrets = true; }
+        else if (arg === '--merge-catalog') { options.mergeCatalog = argv[++i]; }
         else if (arg === '-h' || arg === '--help') { options.help = true; }
         else if (!options.input) { options.input = arg; }
     }
@@ -105,6 +112,10 @@ function redactString(value, report, keepSecrets) {
             report.secretsRedacted++;
             return `${prefix}{{functionKey}}`;
         });
+        output = output.replace(FUNCTION_HOST_PATTERN, () => {
+            report.functionHostsRewritten++;
+            return '{{functionBaseUrl}}';
+        });
     }
     output = output.replace(EMAIL_PATTERN, () => {
         report.emailsRedacted++;
@@ -141,6 +152,91 @@ function scrub(node, report, insideMetadata, keepSecrets) {
         output[key] = scrub(value, report, key === 'metadata', keepSecrets);
     }
     return output;
+}
+
+// ---------------------------------------------------------------------------
+// Catalog merge. The source solution ships many scope recipes whose HTTP step
+// still points at the literal placeholder route `api/function_trigger_name` -
+// the file plumbing (Get file content -> HTTP -> Create file) is wired, but
+// the call itself was never configured. The utility catalog knows the real
+// route for each function, and the HTTP step names track the catalog titles
+// (HTTP_Merge_PDFs -> merge_pdf_fitz), so the two can be joined mechanically.
+
+const PLACEHOLDER_ROUTE = 'function_trigger_name';
+
+function normalizeName(name) {
+    return name.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function nameWords(name) {
+    return name.toLowerCase().replace(/^http[_ ]?/, '').split(/[^a-z0-9]+/).filter(Boolean).sort();
+}
+
+/** True when both word lists pair up with one being a prefix of the other
+ *  ("compression" matches "compress"). Handles inflected step names. */
+function wordsMatch(a, b) {
+    if (a.length !== b.length) { return false; }
+    return a.every((word, i) => word.startsWith(b[i]) || b[i].startsWith(word));
+}
+
+function buildCatalogLookup(catalogPath) {
+    const catalog = JSON.parse(fs.readFileSync(catalogPath, 'utf8'));
+    const byNorm = new Map();
+    for (const action of catalog.actions || []) {
+        byNorm.set(normalizeName(action.title), action.route);
+        byNorm.set(normalizeName(action.route), action.route);
+    }
+    return { byNorm, actions: catalog.actions || [] };
+}
+
+function resolveRoute(stepName, lookup) {
+    const cleaned = stepName.replace(/^HTTP[_ ]?/i, '').replace(/[_ ]\d+$/, '');
+    const key = normalizeName(cleaned);
+
+    const exact = lookup.byNorm.get(key);
+    if (exact) { return exact; }
+
+    if (key.length > 5) {
+        const contained = new Set();
+        for (const [norm, route] of lookup.byNorm) {
+            if (norm.includes(key) || key.includes(norm)) { contained.add(route); }
+        }
+        if (contained.size === 1) { return contained.values().next().value; }
+    }
+
+    const words = nameWords(cleaned);
+    const wordHits = new Set();
+    for (const action of lookup.actions) {
+        if (wordsMatch(words, nameWords(action.title)) || wordsMatch(words, nameWords(action.route))) {
+            wordHits.add(action.route);
+        }
+    }
+    if (wordHits.size === 1) { return wordHits.values().next().value; }
+
+    return null;
+}
+
+/** Rewrite placeholder HTTP routes in-place using the step name -> route join. */
+function mergeCatalogRoutes(node, lookup, report) {
+    if (!node || typeof node !== 'object') { return; }
+    if (Array.isArray(node)) {
+        node.forEach(item => mergeCatalogRoutes(item, lookup, report));
+        return;
+    }
+    for (const [key, value] of Object.entries(node)) {
+        if (value && typeof value === 'object' && value.type === 'Http'
+            && typeof value.inputs?.uri === 'string'
+            && value.inputs.uri.includes(PLACEHOLDER_ROUTE)) {
+            const route = resolveRoute(key, lookup);
+            if (route) {
+                value.inputs.uri = value.inputs.uri.replace(PLACEHOLDER_ROUTE, route);
+                report.routesMerged++;
+            } else {
+                report.unresolvedSteps.push(key);
+            }
+        }
+        mergeCatalogRoutes(value, lookup, report);
+    }
 }
 
 /** Walk the action tree, yielding [name, action, parentScope] for every node. */
@@ -193,12 +289,20 @@ function main() {
       --scopes          Export whole Scope actions instead of individual HTTP calls
       --category <name> Set a category on every preset
       --keep-secrets    Do not replace ?code= values with {{functionKey}}
+      --merge-catalog <utility-catalog.json>
+                        Rewrite placeholder api/function_trigger_name routes using
+                        the catalog entry matching each HTTP step's name
 `);
         process.exit(options.help ? 0 : 1);
     }
 
     const definition = resolveDefinition(loadDefinition(options.input));
-    const report = { metadataKeysRemoved: 0, secretsRedacted: 0, emailsRedacted: 0, connectionsRemoved: 0, tenantIdsRedacted: 0 };
+    const report = {
+        metadataKeysRemoved: 0, secretsRedacted: 0, emailsRedacted: 0,
+        connectionsRemoved: 0, tenantIdsRedacted: 0, functionHostsRewritten: 0,
+        routesMerged: 0, unresolvedSteps: [],
+    };
+    const catalogLookup = options.mergeCatalog ? buildCatalogLookup(options.mergeCatalog) : null;
 
     const presets = [];
     const seenTitles = new Map();
@@ -208,6 +312,9 @@ function main() {
         if (!isMatch) { continue; }
 
         const cleaned = scrub(action, report, false, options.keepSecrets);
+        if (catalogLookup) {
+            mergeCatalogRoutes({ [name]: cleaned }, catalogLookup, report);
+        }
         const preset = toPreset(name, cleaned, options.category, presets.length);
 
         // The demo flows repeat the same call several times; keep the first.
@@ -232,10 +339,19 @@ function main() {
         report.emailsRedacted && `${report.emailsRedacted} email addresses`,
         report.connectionsRemoved && `${report.connectionsRemoved} connection references`,
         report.tenantIdsRedacted && `${report.tenantIdsRedacted} tenant identifiers`,
+        report.functionHostsRewritten && `${report.functionHostsRewritten} function hosts`,
     ].filter(Boolean);
 
     if (removed.length > 0) {
         console.error(`Scrubbed ${removed.join(', ')}`);
+    }
+
+    if (options.mergeCatalog) {
+        console.error(`Merged ${report.routesMerged} placeholder routes from the catalog`);
+        const unresolved = [...new Set(report.unresolvedSteps)];
+        if (unresolved.length > 0) {
+            console.error(`warning: ${unresolved.length} placeholder step(s) had no catalog match and still point at api/${PLACEHOLDER_ROUTE}: ${unresolved.join(', ')}`);
+        }
     }
 }
 

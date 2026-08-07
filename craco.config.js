@@ -32,12 +32,17 @@ module.exports = {
                     runtimeChunk: false,
                 },
                 plugins: [
-                    ...webpackConfig.plugins,
+                    // Drop CRA's default HtmlWebpackPlugin: it has no chunks filter,
+                    // so the popup (index.html) would load every entry — including a
+                    // second copy of the background service worker and Monaco.
+                    ...webpackConfig.plugins.filter(
+                        (plugin) => plugin.constructor.name !== 'HtmlWebpackPlugin'
+                    ),
                     new HtmlWebpackPlugin({
                         inject: true,
-                        chunks: ["options"],
+                        chunks: ["main"],
                         template: paths.appHtml,
-                        filename: 'options.html',
+                        filename: 'index.html',
                     }),
                     new HtmlWebpackPlugin({
                         inject: true,

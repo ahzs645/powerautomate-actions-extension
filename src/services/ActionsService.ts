@@ -2,6 +2,17 @@ import { Constants } from "../constants/Constants";
 import { IActionModel } from "../models";
 import { IActionService } from "./interfaces";
 
+// Credential-bearing headers must never end up in the generated action JSON or
+// chrome.storage.local: a pasted action would otherwise carry a live bearer
+// token into the flow definition. Flows authenticate through their own
+// connections, so these headers are useless in a pasted action anyway.
+const CREDENTIAL_HEADERS = new Set([
+  'authorization',
+  'proxy-authorization',
+  'cookie',
+  'x-api-key',
+]);
+
 export class ActionsService implements IActionService {
 
   public getCorrectAction(req: chrome.webRequest.WebRequestHeadersDetails, foundAction: chrome.webRequest.WebRequestBodyDetails | undefined): IActionModel | null {
@@ -17,7 +28,10 @@ export class ActionsService implements IActionService {
     if ((!isSharePointRequest && !isGraphRequest) || req.frameType === "sub_frame" || req.type.toLowerCase() !== 'xmlhttprequest') { return null; }
 
     const headersJson: any = {};
-    headers.forEach(header => { headersJson[header.name] = header.value });
+    headers.forEach(header => {
+      if (CREDENTIAL_HEADERS.has(header.name.toLowerCase())) { return; }
+      headersJson[header.name] = header.value;
+    });
 
     let action = this.getHttpRequestActionTemplate(req.method, req.url, headersJson, title, requestBody);
 

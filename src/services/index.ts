@@ -6,3 +6,4 @@ export * from './StorageService';
 export * from './PredefinedActionsService';
 export * from './UtilityActionsService';
 export * from './ActionSanitizer';
+export * from './DesignerCopyService';

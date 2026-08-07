@@ -15,16 +15,6 @@ export interface IStorageService {
     getIsRecordingValue(): Promise<boolean>;
     setIsRecordingValue(isRecording: boolean): Promise<boolean>;
 
-    setCurrentCopiedActionV3(action?: IActionModel): Promise<boolean>;
-    getCurrentCopiedActionV3(): Promise<IActionModel>;
-    clearCurrentCopiedActionV3(): Promise<void>;
-
-    getCopiedActionsV3(): Promise<IActionModel[]>;
-    setNewCopiedActionV3(action: IActionModel): Promise<IActionModel[]>;
-    setNewCopiedActionsV3(actionToAdd: IActionModel, oldActions: IActionModel[]): Promise<IActionModel[]>;
-    deleteCopiedActionV3(action: IActionModel): Promise<IActionModel[]>;
-    clearCopiedActionsV3(): Promise<void>;
-
     getFavoriteActions(): Promise<IActionModel[]>;
     addFavoriteAction(action: IActionModel): Promise<IActionModel[]>;
     removeFavoriteAction(action: IActionModel): Promise<IActionModel[]>;

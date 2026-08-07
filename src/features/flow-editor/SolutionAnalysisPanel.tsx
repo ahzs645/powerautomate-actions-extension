@@ -32,6 +32,15 @@ interface SolutionAnalysisPanelProps {
   onDismiss: () => void;
 }
 
+const escapeXml = (text: string): string => {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+};
+
 const cardStyles = mergeStyles({
   padding: '16px',
   borderRadius: '8px',
@@ -460,9 +469,11 @@ export const SolutionAnalysisPanel: React.FC<SolutionAnalysisPanelProps> = ({
       if (!pos) return;
 
       const fill = node.isInSolution ? '#0078d4' : '#d13438';
-      const displayName = node.displayName.length > 20
+      // Flow names come from an uploaded solution zip; escape them so a
+      // crafted name can't inject markup into the dangerouslySetInnerHTML SVG.
+      const displayName = escapeXml(node.displayName.length > 20
         ? node.displayName.substring(0, 17) + '...'
-        : node.displayName;
+        : node.displayName);
 
       svg += `
         <rect x="${pos.x}" y="${pos.y}" width="${nodeWidth}" height="${nodeHeight}"

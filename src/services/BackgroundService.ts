@@ -3,8 +3,8 @@ import { IBackgroundService, IStorageService, IExtensionCommunicationService, IA
 
 export class BackgroundService implements IBackgroundService {
     private actionsWithBody: chrome.webRequest.WebRequestBodyDetails[] = [];
-    private previousUrl = '';
-    private isRecordingPageVar = false;
+    private previousUrlByTab = new Map<number, string>();
+    private isRecordingPageByTab = new Map<number, boolean>();
 
     constructor(private storageService: IStorageService, private communicationService: IExtensionCommunicationService, private actionsService: IActionService) {
     }
@@ -35,7 +35,9 @@ export class BackgroundService implements IBackgroundService {
         try {
             const isRecording = await this.storageService.getIsRecordingValue();
             if (isRecording) {
-                const isRecordingPage = await this.checkIfPageIsRecordingPage();
+                // Requests without an associated tab (tabId -1) can never be a recording page
+                if (req.tabId < 0) { return; }
+                const isRecordingPage = await this.checkIfPageIsRecordingPage(req.tabId);
                 if (!isRecordingPage) { return; }
 
                 const foundAction = this.actionsWithBody.find((action) => action.requestId === req.requestId);
@@ -82,39 +84,50 @@ export class BackgroundService implements IBackgroundService {
         return message.to === AppElement.Background;
     }
 
-    public getCurrentTabUrl(): Promise<string> {
-        return new Promise((resolve, reject) => {
-            chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-                if (tabs.length > 0) {
-                    const tab = tabs[0];
-                    resolve(tab.url ? tab.url : '');
-                } else {
-                    reject(new Error('No active tab found'));
+    public getTabUrl(tabId: number): Promise<string> {
+        return new Promise((resolve) => {
+            chrome.tabs.get(tabId, (tab) => {
+                if (chrome.runtime.lastError || !tab) {
+                    resolve('');
+                    return;
                 }
+                resolve(tab.url ? tab.url : '');
             });
         });
     }
 
-    public isRecordingPage(): Promise<boolean> {
-        return new Promise((resolve, reject) => {
-            this.communicationService.sendRequest({ actionType: ActionType.CheckRecordingPage, message: "Check Recording Page" }, AppElement.Background, AppElement.Content,
-                (response) => {
-                    resolve(response)
-                });
+    public isRecordingPage(tabId: number): Promise<boolean> {
+        return new Promise((resolve) => {
+            // Ask the content script in the request's own tab — not the active
+            // tab, which may be a different page entirely.
+            chrome.tabs.sendMessage(tabId, {
+                actionType: ActionType.CheckRecordingPage,
+                message: "Check Recording Page",
+                from: AppElement.Background,
+                to: AppElement.Content,
+            }, (response) => {
+                if (chrome.runtime.lastError) {
+                    resolve(false);
+                    return;
+                }
+                resolve(!!response);
+            });
         });
     }
 
-    private checkUrlChange = async () => {
-        const url = await this.getCurrentTabUrl();
-        return (this.previousUrl !== url);
+    private checkUrlChange = async (tabId: number) => {
+        const url = await this.getTabUrl(tabId);
+        const hasChanged = this.previousUrlByTab.get(tabId) !== url;
+        this.previousUrlByTab.set(tabId, url);
+        return hasChanged;
     }
 
-    private checkIfPageIsRecordingPage = async () => {
-        const urlHasChanged = await this.checkUrlChange();
-        if (urlHasChanged) {
-            this.isRecordingPageVar = await this.isRecordingPage();
+    private checkIfPageIsRecordingPage = async (tabId: number) => {
+        const urlHasChanged = await this.checkUrlChange(tabId);
+        if (urlHasChanged || !this.isRecordingPageByTab.has(tabId)) {
+            this.isRecordingPageByTab.set(tabId, await this.isRecordingPage(tabId));
         }
 
-        return this.isRecordingPageVar
+        return this.isRecordingPageByTab.get(tabId)!;
     }
 }

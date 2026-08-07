@@ -1,6 +1,5 @@
 export const enum Mode {
     // Action Management Modes
-    CopiedActionsV3,
     CopiedActions,
     Requests,
     Favorites,

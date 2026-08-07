@@ -37,7 +37,7 @@ describe('ActionsService', () => {
               "dataset": "https://example.com",
               "parameters/method": "${method}",
               "parameters/uri": "_api/data",
-              "parameters/headers": {"Content-Type":"application/json","Authorization":"Bearer token"}
+              "parameters/headers": {"Content-Type":"application/json"}
               
             },
             "authentication": "@parameters('${'$'}authentication')"
@@ -261,7 +261,7 @@ describe('ActionsService', () => {
             "inputs": {
                 "method": "GET",
                 "uri": "https://graph.microsoft.com/v1.0/me/drive/root",
-                "headers": {"Content-Type":"application/json","Authorization":"Bearer token"}
+                "headers": {"Content-Type":"application/json"}
                 
             },
             "runAfter": {

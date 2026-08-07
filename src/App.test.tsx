@@ -72,7 +72,6 @@ describe('App', () => {
       actions={[]}
       myClipboardActions={[]}
       currentMode={Mode.Requests} 
-      myCopiedActionsV3={[]}
       favoriteActions={[]}
       />);
 
@@ -93,7 +92,6 @@ describe('App', () => {
       actions={[]}
       myClipboardActions={[]}
       currentMode={Mode.Requests} 
-      myCopiedActionsV3={[]}
       favoriteActions={[]}
       />);
 
@@ -117,7 +115,6 @@ describe('App', () => {
       actions={[]}
       myClipboardActions={[]}
       currentMode={Mode.Requests} 
-      myCopiedActionsV3={[]}
       favoriteActions={[]}
       />);
 
@@ -141,7 +138,6 @@ describe('App', () => {
       actions={[]}
       myClipboardActions={[]}
       currentMode={Mode.Requests} 
-      myCopiedActionsV3={[]}
       favoriteActions={[]}
       />);
 
@@ -168,7 +164,6 @@ describe('App', () => {
       actions={[]}
       myClipboardActions={[]}
       currentMode={Mode.Requests} 
-      myCopiedActionsV3={[]}
       favoriteActions={[]}
       />);
 
@@ -191,7 +186,6 @@ describe('App', () => {
       actions={[]}
       myClipboardActions={[]}
       currentMode={Mode.Settings}
-      myCopiedActionsV3={[]}
       favoriteActions={[]}
       />);
 

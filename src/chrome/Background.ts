@@ -572,27 +572,29 @@ async function applySurfaceMode(mode: 'popup' | 'sidepanel') {
     }
 }
 
-// Main initialization
-const main = async () => {
-    // Restore state from session storage (survives service worker restarts)
-    await restoreState();
+// All listeners must be registered synchronously in the first turn of the
+// script: MV3 delivers the event that woke an evicted service worker only to
+// listeners that already exist by the time the initial synchronous execution
+// finishes. Handlers that touch tabStates/editorToInitiator await stateReady
+// so restored session state is in place before they run.
+const stateReady = restoreState();
 
-    // Apply stored surface mode on startup
-    const initialViewMode = await getStoredViewMode();
-    await applySurfaceMode(initialViewMode);
-
-    // Watch for settings changes to switch surface mode dynamically
-    chrome.storage.onChanged.addListener((changes, area) => {
-        if (area === 'local' && changes[VIEW_MODE_KEY]) {
-            const newSettings = changes[VIEW_MODE_KEY].newValue;
-            if (newSettings?.viewMode) {
-                applySurfaceMode(newSettings.viewMode);
-            }
+// Watch for settings changes to switch surface mode dynamically
+chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'local' && changes[VIEW_MODE_KEY]) {
+        const newSettings = changes[VIEW_MODE_KEY].newValue;
+        if (newSettings?.viewMode) {
+            applySurfaceMode(newSettings.viewMode);
         }
-    });
+    }
+});
 
-    // Existing recording functionality
-    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    stateReady.then(() => handleRuntimeMessage(message, sender, sendResponse));
+    return true; // Keep the channel open; handlers respond asynchronously
+});
+
+function handleRuntimeMessage(message: any, sender: chrome.runtime.MessageSender, sendResponse: (response?: any) => void) {
         // Handle surface mode change messages
         if (message.type === 'set-view-mode') {
             const mode = message.mode as 'popup' | 'sidepanel';
@@ -636,15 +638,15 @@ const main = async () => {
         // Handle existing messages through BackgroundService
         backgroundService.handleBackgroundAction(message, sender, sendResponse);
         return true;
-    });
+}
 
-    // Record actions (existing functionality)
-    backgroundService.recordActions();
+// Record actions (existing functionality)
+backgroundService.recordActions();
 
-    // Listen for Flow API requests for token extraction
-    chrome.webRequest.onBeforeSendHeaders.addListener(
-        listenFlowApiRequests,
-        {
+// Listen for Flow API requests for token extraction
+chrome.webRequest.onBeforeSendHeaders.addListener(
+    (details) => { stateReady.then(() => listenFlowApiRequests(details)); },
+    {
             urls: [
                 "https://*.api.flow.microsoft.com/*",
                 "https://*.api.powerautomate.com/*",
@@ -670,10 +672,11 @@ const main = async () => {
             ],
         },
         ["requestHeaders"]
-    );
+);
 
-    // Track when tabs are closed
-    chrome.tabs.onRemoved.addListener((tabId) => {
+// Track when tabs are closed
+chrome.tabs.onRemoved.addListener((tabId) => {
+    stateReady.then(() => {
         // If a flow editor tab was closed, clean up the reverse lookup and remove from set
         const initiatorId = editorToInitiator.get(tabId);
         if (initiatorId !== undefined) {
@@ -697,7 +700,13 @@ const main = async () => {
             tabStates.delete(tabId);
         }
     });
+});
 
+// Async initialization that does not involve listener registration
+const main = async () => {
+    await stateReady;
+    const initialViewMode = await getStoredViewMode();
+    await applySurfaceMode(initialViewMode);
     debugLog('Power Automate Toolkit background service initialized');
 }
 

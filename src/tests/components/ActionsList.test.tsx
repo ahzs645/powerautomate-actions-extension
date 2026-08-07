@@ -62,7 +62,7 @@ describe('ActionsList', () => {
 
   const defaultProps = {
     actions: mockActions,
-    mode: Mode.CopiedActionsV3,
+    mode: Mode.CopiedActions,
     changeSelectionFunc: jest.fn(),
     deleteActionFunc: jest.fn(),
     showButton: false,

@@ -7,8 +7,6 @@ export class StorageService implements IStorageService {
     private RECORDED_ACTIONS_KEY = "recordedActions";
     private MY_CLIPBOARD_ACTIONS_KEY = "myClipboardActions";
     private IS_RECORDING_KEY = "isRecordingActions";
-    private CURRENT_COPIED_ACTION_KEY = "currentCopiedActionV3";
-    private COPIED_ACTIONS_V3_KEY = "copiedActionsV3";
     private FAVORITE_ACTIONS_KEY = "favoriteActions";
     private SETTINGS_KEY = "appSettings";
     private ANALYSIS_CONFIG_KEY = "analysisConfig";
@@ -71,56 +69,6 @@ export class StorageService implements IStorageService {
     public setIsRecordingValue = async (isRecording: boolean) => {
         await chrome.storage.local.set({ [this.IS_RECORDING_KEY]: isRecording });
         return isRecording;
-    }
-
-    public async setCurrentCopiedActionV3(action: IActionModel): Promise<boolean> {
-        try {
-            await chrome.storage.local.set({ [this.CURRENT_COPIED_ACTION_KEY]: JSON.stringify(action) });
-            return true;
-        } catch {
-            return false;
-
-        }
-    }
-
-    public async getCurrentCopiedActionV3(): Promise<IActionModel> {
-        return new Promise((resolve, reject) => {
-            try {
-                chrome.storage.local.get(this.CURRENT_COPIED_ACTION_KEY, (result) => {
-                    resolve(result[this.CURRENT_COPIED_ACTION_KEY])
-                });
-
-            }
-            catch {
-                reject(new Promise(() => { return null; }));
-            }
-        });
-    }
-
-    public async clearCurrentCopiedActionV3() {
-        await chrome.storage.local.set({ [this.CURRENT_COPIED_ACTION_KEY]: null });
-    }
-
-    public async getCopiedActionsV3(): Promise<IActionModel[]> {
-        return await this.getActionsByKey(this.COPIED_ACTIONS_V3_KEY);
-    }
-
-    public async setNewCopiedActionV3(action: IActionModel): Promise<IActionModel[]> {
-        const result = await this.getCopiedActionsV3();
-        return await this.setNewActionByKey(action, this.COPIED_ACTIONS_V3_KEY, result);
-    }
-
-    public async setNewCopiedActionsV3(actionToAdd: IActionModel, oldActions: IActionModel[]): Promise<IActionModel[]> {
-        return await this.setNewActionByKey(actionToAdd, this.COPIED_ACTIONS_V3_KEY, oldActions);
-    }
-
-    public async deleteCopiedActionV3(action: IActionModel): Promise<IActionModel[]> {
-        const result = await this.getCopiedActionsV3();
-        return await this.deleteActionByKey(action, this.COPIED_ACTIONS_V3_KEY, result);
-    }
-
-    public async clearCopiedActionsV3() {
-        await chrome.storage.local.set({ [this.COPIED_ACTIONS_V3_KEY]: [] });
     }
 
     public async getFavoriteActions(): Promise<IActionModel[]> {
@@ -304,6 +252,7 @@ export class StorageService implements IStorageService {
     private deleteActionByKey = async (action: IActionModel, key: string, oldActions: IActionModel[]): Promise<IActionModel[]> => {
         const myArray = oldActions || [];
         const index = myArray.findIndex((a) => a.id === action.id);
+        if (index === -1) { return myArray; }
         myArray.splice(index, 1);
         await chrome.storage.local.set({ [key]: myArray });
         return myArray;

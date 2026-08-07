@@ -20,6 +20,7 @@ export enum ActionType {
 
     CheckIsNewPowerAutomateEditorV3,
     SetSelectedActionsIntoClipboardV3,
+    GetDesignerClipboardFallback,
 
     // Flow Editor Actions
     OpenFlowEditor,

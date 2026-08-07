@@ -1,5 +1,5 @@
 import { Constants } from "../constants/Constants";
-import { ActionType, AppElement, IActionModel, ICommunicationChromeMessage, ICopiedActionV3Model } from "../models";
+import { ActionType, AppElement, IActionModel, ICommunicationChromeMessage } from "../models";
 import { IActionBody } from "../models/NewEditorModels";
 import { IStorageService, IExtensionCommunicationService, IContentService } from "./interfaces";
 
@@ -34,6 +34,12 @@ export class ContentService implements IContentService {
                 break;
             case ActionType.SetSelectedActionsIntoClipboardV3:
                 sendResponse(this.setSelectedActionsIntoClipboardV3(message));
+                break;
+            case ActionType.GetDesignerClipboardFallback:
+                // The designer only writes this key when navigator.clipboard is
+                // unavailable; the popup reads the system clipboard first and
+                // asks for this fallback on a miss.
+                sendResponse(window.localStorage.getItem(Constants.PowerAutomateLocalStorageKeyV3));
                 break;
             default:
                 console.log('Incorrect Action Type');
@@ -256,25 +262,6 @@ export class ContentService implements IContentService {
                 console.log('Cannot Copy the action');
             }
         });
-    }
-
-    public setCurrentCopiedAction = () => {
-        const copiedActionSchemaString = window.localStorage.getItem(Constants.PowerAutomateLocalStorageKeyV3);
-        if (!copiedActionSchemaString) { return; }
-
-        const copiedActionSchema: ICopiedActionV3Model = JSON.parse(copiedActionSchemaString);
-
-        const copiedAction: IActionModel = {
-            actionJson: copiedActionSchemaString ? copiedActionSchemaString : '',
-            id: this.generateUniqueId(),
-            method: '',
-            url: '',
-            icon: copiedActionSchema?.nodeData?.operationMetadata?.iconUri,
-            title: copiedActionSchema?.nodeData?.id
-        }
-
-        this.storageService.setCurrentCopiedActionV3(copiedAction);
-        return copiedAction;
     }
 
     private generateUniqueId() {

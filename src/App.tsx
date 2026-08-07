@@ -4,9 +4,9 @@ import { ActionType, IDataChromeMessage, AppElement, ICommunicationChromeMessage
 import { IActionModel } from './models/IActionModel';
 import { ISettingsModel, ThemeMode } from './models/ISettingsModel';
 import { StorageService } from './services/StorageService';
-import { ExtensionCommunicationService, PredefinedActionsService } from './services';
+import { ExtensionCommunicationService, PredefinedActionsService, designerCopyService } from './services';
 import { utilityActionsService } from './services/UtilityActionsService';
-import { Icon, MessageBar, MessageBarType, Pivot, PivotItem } from '@fluentui/react';
+import { DefaultButton, Icon, MessageBar, MessageBarType, Pivot, PivotItem } from '@fluentui/react';
 import ActionsList from './components/ActionsList';
 import Settings from './components/Settings';
 import PredefinedActionsList from './components/PredefinedActionsList';
@@ -651,6 +651,42 @@ function App(initialState?: IInitialState | undefined) {
     ></Icon>;
   }, [showSettings])
 
+  const tryImportDesignerCopy = useCallback(async (text: string | null): Promise<boolean> => {
+    const action = designerCopyService.parse(text);
+    if (!action) { return false; }
+
+    const updated = await storageService.addNewMyClipboardAction(action);
+    setMyClipboardActions(updated);
+    setNotificationMessage(`Imported "${action.title}" from the designer`);
+    setIsSuccessNotification(true);
+    return true;
+  }, [storageService]);
+
+  // Clipboard-first import, mirroring the designer's write order: its copy
+  // handler uses navigator.clipboard.writeText and only falls back to the
+  // msla-clipboard localStorage key when the async clipboard API is missing.
+  const importFromDesigner = useCallback(async () => {
+    let clipboardText: string | null = null;
+    try {
+      clipboardText = await navigator.clipboard.readText();
+    } catch (e) {
+      console.log('Clipboard read unavailable, falling back to localStorage', e);
+    }
+
+    if (await tryImportDesignerCopy(clipboardText)) { return; }
+
+    communicationService.sendRequest(
+      { actionType: ActionType.GetDesignerClipboardFallback, message: 'Get designer clipboard fallback' },
+      AppElement.ReactApp,
+      AppElement.Content,
+      async (response) => {
+        if (!(await tryImportDesignerCopy(response))) {
+          setNotificationMessage('No copied designer action found. Copy an action in the designer first.');
+          setIsSuccessNotification(false);
+        }
+      });
+  }, [communicationService, tryImportDesignerCopy]);
+
   const openFlowEditor = useCallback(() => {
     chrome.runtime.sendMessage({ type: 'open-flow-editor' } as FlowEditorActions, (response) => {
       if (chrome.runtime.lastError) {
@@ -743,9 +779,6 @@ function App(initialState?: IInitialState | undefined) {
             case "Copied Actions":
               setCurrentMode(Mode.CopiedActions);
               break;
-            case "Copied Actions in the new editor":
-              setCurrentMode(Mode.CopiedActionsV3);
-              break;
             case "Favorites":
               setCurrentMode(Mode.Favorites);
               break;
@@ -771,6 +804,13 @@ function App(initialState?: IInitialState | undefined) {
           {<PivotItem
             headerText="Copied Actions"
           >
+            <DefaultButton
+              text="Import from designer"
+              iconProps={{ iconName: 'Download' }}
+              title="Import the action last copied inside the Power Automate designer"
+              styles={{ root: { margin: '8px 0 0 8px' } }}
+              onClick={importFromDesigner}
+            />
             <ActionsList
               actions={filteredMyClipboardActions}
               mode={Mode.CopiedActions}

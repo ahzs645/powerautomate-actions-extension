@@ -27,6 +27,8 @@ The Power Automate Actions tool serves as a versatile solution for managing Powe
 
 Easily copy all actions from the "My Clipboard" section and paste them into the desired environment.
 
+Actions copied inside the modern designer itself can be pulled into the extension too: copy an action in the designer, open the extension and press **Import from designer** on the *Copied Actions* tab. The import reads the system clipboard first (where the designer's copy handler writes) and falls back to the designer's `msla-clipboard` storage key for browsers without the async clipboard API.
+
 
 ![Copy Actions Between Environments](/images/CopyBetweenEnvs.gif)
 
@@ -135,9 +137,16 @@ node scripts/extract-flow-presets.js MyFlow.zip -o my-actions.json
 
 # Whole scopes instead, tagged with a category
 node scripts/extract-flow-presets.js MyFlow.zip --scopes --category "My Utils" -o my-actions.json
+
+# Join scope recipes against the utility catalog: HTTP steps still pointing at
+# the placeholder api/function_trigger_name route get the real route matched
+# from the step's name (HTTP_Merge_PDFs -> merge_pdf_fitz)
+node scripts/extract-flow-presets.js Solution.zip --scopes --merge-catalog src/data/utility-catalog.json -o my-recipes.json
 ```
 
-Accepts a legacy flow export, a Dataverse solution export, or a bare `definition.json`. Every action is scrubbed on the way out (see *Tenant data scrubbing* above); pass `--keep-secrets` only for a pack that will never leave your machine. Point the extension at the result via **Settings → Predefined Actions**, which now accepts one URL per line.
+Accepts a legacy flow export, a Dataverse solution export, or a bare `definition.json`. Every action is scrubbed on the way out (see *Tenant data scrubbing* above): query-string secrets become `{{functionKey}}` and `*.azurewebsites.net` origins become `{{functionBaseUrl}}`, so a shared pack can never point at the original author's Function App. Pass `--keep-secrets` only for a pack that will never leave your machine. Point the extension at the result via **Settings → Predefined Actions**, which now accepts one URL per line; `{{functionBaseUrl}}`/`{{functionKey}}` placeholders in remote packs are resolved against your configured Function App on load.
+
+The bundled [utility-recipes.json](utility-recipes.json) pack was generated this way from the File & Utility Azure Functions solution export: 49 complete scope recipes (Get file content → HTTP → Create file, with the plumbing already wired) covering merge/split/rotate PDF, Word/HTML conversion, CSV/JSON/Excel transforms and more.
 
 ## New Features
 
