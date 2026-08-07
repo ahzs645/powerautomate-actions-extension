@@ -67,6 +67,9 @@ export interface FlowTrigger {
   name: string;
   type: string;
   connector: string;
+  /** Connector branding from connectionReferences, same as an action's. */
+  imgURL?: string;
+  brandColor?: string;
   recurrence?: string;
   inputs?: any;
   // Enhanced trigger details
@@ -267,6 +270,7 @@ export class FlowAnalyzer {
 
     const triggerName = triggerNames[0];
     const trigger = triggers[triggerName];
+    const triggerBranding = this.getConnectorBranding(trigger);
 
     // Extract connector info
     let connector = 'Unknown';
@@ -313,6 +317,8 @@ export class FlowAnalyzer {
       schema,
       method: trigger.inputs?.method,
       relativePath: trigger.inputs?.relativePath,
+      imgURL: triggerBranding.iconUri,
+      brandColor: triggerBranding.brandColor,
     };
   }
 

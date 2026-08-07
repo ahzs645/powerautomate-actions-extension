@@ -321,6 +321,69 @@ describe('containers', () => {
   });
 });
 
+describe('operation icons', () => {
+  it('gives built-in operations the designer icon and brand colour', () => {
+    const result = analyze();
+    const diagram = buildDiagram(result.actions, result.trigger);
+    const byKey = new Map(diagram.nodes.map(n => [n.key, n]));
+
+    const variable = byKey.get('Initialize_AliasUsed')!;
+    expect(variable.iconUri.startsWith('data:image/svg+xml')).toBe(true);
+    expect(variable.accent).toBe('#770BD6');
+
+    const condition = byKey.get('Alert_only_if_the_site_is_not_active')!;
+    expect(condition.iconUri.startsWith('data:image/svg+xml')).toBe(true);
+    expect(condition.accent).toBe('#484F58');
+  });
+
+  it('lets a connector action keep its own connectionReferences branding', () => {
+    const result = analyze();
+    const diagram = buildDiagram(result.actions, result.trigger);
+    const lookup = diagram.nodes.find(n => n.key === 'Look_up_the_site')!;
+
+    // Excel's iconUri wins over any built-in table entry.
+    expect(lookup.iconUri).toBe('https://example.invalid/excel/icon.png');
+    expect(lookup.accent).toBe('#107C41');
+  });
+
+  it('resolves branding for the trigger too', () => {
+    const result = analyze();
+    const diagram = buildDiagram(result.actions, result.trigger);
+    const trigger = diagram.nodes.find(n => n.isTrigger)!;
+
+    expect(result.trigger.imgURL).toBe('https://example.invalid/office365/icon.png');
+    expect(trigger.iconUri).toBe('https://example.invalid/office365/icon.png');
+    expect(trigger.accent).toBe('#0078D4');
+  });
+
+  it('falls back to initials for operations the capture did not cover', () => {
+    const flow = {
+      definition: {
+        triggers: { Manual: { type: 'Request' } },
+        actions: {
+          Try_scope: {
+            type: 'Scope',
+            runAfter: {},
+            actions: { Step: { type: 'Compose', runAfter: {} } },
+          },
+        },
+      },
+    };
+    const result = new FlowAnalyzer().analyze(flow, 'S');
+    const diagram = buildDiagram(result.actions, result.trigger);
+
+    const scope = diagram.nodes.find(n => n.key === 'Try_scope')!;
+    expect(scope.iconUri).toBe('');
+    expect(scope.shortLabel).toBe('SC');
+    expect(scope.accent).toBe('#484F58');
+
+    // Compose is covered, so it gets the data-operation icon.
+    const compose = diagram.nodes.find(n => n.key === 'Step')!;
+    expect(compose.iconUri.startsWith('data:image/svg+xml')).toBe(true);
+    expect(compose.accent).toBe('#8C6CFF');
+  });
+});
+
 describe('collapse', () => {
   const SWITCHY = (caseCount: number) => {
     const cases: Record<string, unknown> = {};

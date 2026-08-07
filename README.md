@@ -148,6 +148,19 @@ Accepts a legacy flow export, a Dataverse solution export, or a bare `definition
 
 The bundled [utility-recipes.json](utility-recipes.json) pack was generated this way from the File & Utility Azure Functions solution export: 49 complete scope recipes (Get file content → HTTP → Create file, with the plumbing already wired) covering merge/split/rotate PDF, Word/HTML conversion, CSV/JSON/Excel transforms and more.
 
+### `node scripts/extract-operation-icons.js <capture-dir>`
+
+Inventories the built-in operation icons in a saved capture of the Power Automate designer, used to refresh [src/constants/OperationIcons.ts](src/constants/OperationIcons.ts).
+
+```bash
+node scripts/extract-operation-icons.js ~/Downloads/make.powerautomate.com \
+  -o icons.json --sheet sheet.svg --dump-dir icons/
+```
+
+Connector actions (Office 365, Excel, …) get their icon from the flow's own `connectionReferences`, but built-in operations — Initialize variable, Condition, Compose, Terminate — have no connection reference, so their icons have to come from the designer bundle, where each operation manifest inlines one as an SVG data URI.
+
+`Scope`, `Foreach`, `Until` and `Switch` currently have **no** icon and fall back to a grey tile with the type's initials: operation manifests load on demand, so a capture only contains what the captured page actually used. See [docs/operation-icons.md](docs/operation-icons.md) for how to fill that gap and for the provenance note.
+
 ## New Features
 
 **2.3.0**

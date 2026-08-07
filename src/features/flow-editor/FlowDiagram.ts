@@ -11,6 +11,7 @@
 // emitted) and let edges point upwards when a node shared a row with its parent.
 
 import { FlowAction, FlowTrigger } from '../../services/FlowAnalyzer';
+import { getOperationIcon } from '../../constants/OperationIcons';
 
 // ---------------------------------------------------------------------------
 // Visual constants - proportions follow the designer's card canvas
@@ -82,32 +83,22 @@ const STATUS_COLORS: Record<string, string> = {
   Skipped: '#a19f9d',
 };
 
-/** Accent colours by action type, used when the action has no connector branding. */
+/**
+ * Accent colours for operations the designer manifests in the capture did not
+ * cover. Everything else takes its colour from getOperationIcon(), which carries
+ * the designer's own brandColor.
+ */
 const TYPE_COLORS: Record<string, string> = {
-  If: '#484644',
-  Switch: '#484644',
-  Scope: '#484644',
-  Foreach: '#484644',
-  Until: '#484644',
-  InitializeVariable: '#770bd6',
-  SetVariable: '#770bd6',
-  IncrementVariable: '#770bd6',
-  DecrementVariable: '#770bd6',
-  AppendToArrayVariable: '#770bd6',
-  AppendToStringVariable: '#770bd6',
-  Compose: '#8c6cff',
-  ParseJson: '#8c6cff',
-  Select: '#8c6cff',
-  Query: '#8c6cff',
-  Join: '#8c6cff',
-  Table: '#8c6cff',
-  Terminate: '#a4262c',
-  Http: '#709727',
-  Request: '#709727',
-  Response: '#709727',
-  Wait: '#486991',
-  Expression: '#8c6cff',
+  Switch: '#484F58',
+  Scope: '#484F58',
+  Foreach: '#484F58',
+  Until: '#484F58',
+  Do_until: '#484F58',
+  Expression: '#8C6CFF',
+  Filter: '#8C6CFF',
 };
+
+const DEFAULT_ACCENT = '#486991';
 
 const TRIGGER_NAME = '__trigger__';
 
@@ -587,8 +578,8 @@ export function buildDiagram(
       h: triggerH,
       lines: triggerLines,
       tooltip: `${displayName(trigger.name || 'Trigger')}\n${trigger.connector || trigger.type || ''}`,
-      accent: '#0078d4',
-      iconUri: '',
+      accent: trigger.brandColor || COLORS.plus,
+      iconUri: trigger.imgURL || getOperationIcon(trigger.type)?.iconUri || '',
       shortLabel: initials(trigger.connector || trigger.name || 'T'),
       isHeader: false,
       collapsed: false,
@@ -803,13 +794,18 @@ export function buildDiagram(
       .map(parent => statuses[parent])
       .filter(list => !(list.length === 1 && list[0] === 'Succeeded'));
 
+    // A connector action carries its own branding in connectionReferences; a
+    // built-in operation gets the designer's icon and colour instead.
+    const builtIn = getOperationIcon(action.Type);
+
     return {
       key: action.Name,
       x, y, w: CARD_W, h,
       lines,
       tooltip: tooltipFor(action),
-      accent: action.brandColor || TYPE_COLORS[action.Type] || '#486991',
-      iconUri: action.imgURL || '',
+      accent:
+        action.brandColor || builtIn?.brandColor || TYPE_COLORS[action.Type] || DEFAULT_ACCENT,
+      iconUri: action.imgURL || builtIn?.iconUri || '',
       shortLabel: initials(
         action.connector && action.connector !== action.Type
           ? action.connector.replace(/^shared_/, '')
