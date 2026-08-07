@@ -782,7 +782,15 @@ function fanEdge(header: Rect, branch: DiagramFrame): DiagramEdge {
 // SVG rendering
 // ---------------------------------------------------------------------------
 
-export function renderDiagramSvg(diagram: Diagram): string {
+export interface RenderOptions {
+  /** Adds hit targets, hover/selection styling and data-* hooks for click handling. */
+  interactive?: boolean;
+  /** The designer's "+" insert affordance. Pure decoration here, so exports omit it. */
+  showInsertMarkers?: boolean;
+}
+
+export function renderDiagramSvg(diagram: Diagram, options: RenderOptions = {}): string {
+  const { interactive = false, showInsertMarkers = false } = options;
   const { nodes, edges, frames, width, height } = diagram;
   const parts: string[] = [];
 
@@ -805,16 +813,36 @@ export function renderDiagramSvg(diagram: Diagram): string {
     </filter>
   </defs>`);
 
+  if (interactive) {
+    parts.push(`<style>
+      .pa-node, .pa-frame { cursor: pointer; }
+      .pa-hit { fill: transparent; }
+      .pa-focus { fill: none; stroke: ${COLORS.plus}; stroke-width: 2; opacity: 0; pointer-events: none; }
+      .pa-node:hover .pa-focus, .pa-frame:hover .pa-focus { opacity: 0.4; }
+      .pa-node[data-selected="true"] .pa-focus,
+      .pa-frame[data-selected="true"] .pa-focus { opacity: 1; }
+    </style>`);
+  }
+
   parts.push(`<rect width="100%" height="100%" fill="${COLORS.canvas}"/>`);
   parts.push(`<rect width="100%" height="100%" fill="url(#dotGrid)"/>`);
 
   // Containers first, then branch frames, then edges, then cards.
   for (const frame of frames) {
     if (frame.kind !== 'container') continue;
+    const open = interactive
+      ? `<g class="pa-frame" data-frame="${escapeXml(frame.ownerKey)}">`
+      : '<g>';
     parts.push(
-      `<rect x="${round(frame.x)}" y="${round(frame.y)}" width="${round(frame.w)}" ` +
+      open +
+        `<rect x="${round(frame.x)}" y="${round(frame.y)}" width="${round(frame.w)}" ` +
         `height="${round(frame.h)}" rx="4" ry="4" fill="${COLORS.containerFill}" ` +
-        `stroke="${COLORS.containerBorder}" stroke-width="1"/>`
+        `stroke="${COLORS.containerBorder}" stroke-width="1"/>` +
+        (interactive
+          ? `<rect class="pa-focus" x="${round(frame.x - 2)}" y="${round(frame.y - 2)}" ` +
+            `width="${round(frame.w + 4)}" height="${round(frame.h + 4)}" rx="6" ry="6"/>`
+          : '') +
+        '</g>'
     );
   }
 
@@ -856,11 +884,13 @@ export function renderDiagramSvg(diagram: Diagram): string {
     );
   }
 
-  for (const point of diagram.plusPoints) {
-    parts.push(plusMarker(point.x, point.y));
+  if (showInsertMarkers) {
+    for (const point of diagram.plusPoints) {
+      parts.push(plusMarker(point.x, point.y));
+    }
   }
 
-  nodes.forEach((node, i) => parts.push(renderCard(node, i)));
+  nodes.forEach((node, i) => parts.push(renderCard(node, i, interactive)));
 
   parts.push('</svg>');
   return parts.join('\n');
@@ -884,8 +914,13 @@ function plusMarker(x: number, y: number): string {
   );
 }
 
-function renderCard(node: DiagramNode, index: number): string {
-  const parts: string[] = ['<g>'];
+function renderCard(node: DiagramNode, index: number, interactive: boolean): string {
+  const parts: string[] = [
+    interactive
+      ? `<g class="pa-node" data-node="${escapeXml(node.key)}" tabindex="0" role="button" ` +
+        `aria-label="${escapeXml(node.lines.join(' '))}">`
+      : '<g>',
+  ];
 
   // Status dots sit above the card, one group per runAfter parent.
   if (node.dotGroups.length > 0) {
@@ -959,6 +994,13 @@ function renderCard(node: DiagramNode, index: number): string {
     parts.push(chevron(node.x + node.w - 16, node.y + node.h / 2, '#ffffff'));
   }
 
+  if (interactive) {
+    parts.push(
+      `<rect class="pa-focus" x="${round(node.x - 3)}" y="${round(node.y - 3)}" ` +
+        `width="${node.w + 6}" height="${round(node.h + 6)}" rx="5" ry="5"/>`
+    );
+  }
+
   parts.push(`<title>${escapeXml(node.tooltip)}</title>`);
   parts.push('</g>');
   return parts.join('');
@@ -966,10 +1008,11 @@ function renderCard(node: DiagramNode, index: number): string {
 
 export function generateFlowDiagramSvg(
   actions: FlowAction[],
-  trigger: FlowTrigger | null
+  trigger: FlowTrigger | null,
+  options: RenderOptions = {}
 ): string {
   if (!actions || actions.length === 0) return '';
-  return renderDiagramSvg(buildDiagram(actions, trigger));
+  return renderDiagramSvg(buildDiagram(actions, trigger), options);
 }
 
 /**

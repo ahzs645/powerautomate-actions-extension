@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from 'react';
+import { useState, useMemo } from 'react';
 import { Stack } from '@fluentui/react/lib/Stack';
 import { Panel, PanelType } from '@fluentui/react/lib/Panel';
 import { Text } from '@fluentui/react/lib/Text';
@@ -11,7 +11,8 @@ import { mergeStyles } from '@fluentui/react/lib/Styling';
 import { FlowAnalyzer, FlowAnalysisResult, FlowVariable } from '../../services/FlowAnalyzer';
 import { ExceptionAnalyzer, ExceptionAnalysisResult } from '../../services/ExceptionAnalyzer';
 import { ReportGenerator } from '../../services/ReportGenerator';
-import { generateFlowDiagramSvg, inlineDiagramImages } from './FlowDiagram';
+import { FlowDiagramTab } from './FlowDiagramTab';
+import { JsonRange } from './flowJsonLocator';
 import { ExceptionAnalysisTab } from './ExceptionAnalysisTab';
 import { ApiActionsTab } from './ApiActionsTab';
 import { InputAnalysisTab } from './InputAnalysisTab';
@@ -21,6 +22,8 @@ interface FlowAnalysisPanelProps {
   onDismiss: () => void;
   flowDefinition: string;
   flowName: string;
+  /** Supplied by the host page so the diagram can jump the editor to a selection. */
+  onRevealRange?: (range: JsonRange) => void;
 }
 
 const cardStyles = mergeStyles({
@@ -40,16 +43,6 @@ const metricCardStyles = (color: string) => mergeStyles({
   minWidth: '120px',
 });
 
-const diagramContainerStyles = mergeStyles({
-  border: '1px solid #edebe9',
-  borderRadius: '4px',
-  padding: '16px',
-  backgroundColor: '#fff',
-  overflow: 'auto',
-  minHeight: '400px',
-  maxHeight: '600px',
-});
-
 const getRatingBarColor = (rating: number): string => {
   if (rating >= 70) return '#107c10';
   if (rating >= 40) return '#ff8c00';
@@ -61,11 +54,10 @@ export const FlowAnalysisPanel: React.FC<FlowAnalysisPanelProps> = ({
   onDismiss,
   flowDefinition,
   flowName,
+  onRevealRange,
 }) => {
   const [searchText, setSearchText] = useState('');
   const [selectedTab, setSelectedTab] = useState('overview');
-  const [zoom, setZoom] = useState(1);
-  const diagramRef = useRef<HTMLDivElement>(null);
 
   const analysisResult = useMemo<FlowAnalysisResult | null>(() => {
     if (!flowDefinition || !isOpen) return null;
@@ -92,31 +84,6 @@ export const FlowAnalysisPanel: React.FC<FlowAnalysisPanelProps> = ({
       return null;
     }
   }, [analysisResult]);
-
-  // Diagram is laid out and drawn by FlowDiagram, which mirrors the designer's
-  // card canvas (nested scopes, condition branches, failure paths).
-  const diagramSvg = useMemo(() => {
-    if (!analysisResult) return '';
-    try {
-      return generateFlowDiagramSvg(analysisResult.actions, analysisResult.trigger);
-    } catch (error) {
-      console.error('Diagram error:', error);
-      return '';
-    }
-  }, [analysisResult]);
-
-  useEffect(() => {
-    if (selectedTab === 'diagram' && diagramRef.current) {
-      diagramRef.current.innerHTML = diagramSvg;
-      const svgElement = diagramRef.current.querySelector('svg');
-      if (svgElement) {
-        // Keep the intrinsic size in the viewBox and let zoom drive the rendered size.
-        svgElement.setAttribute('width', String(svgElement.viewBox.baseVal.width * zoom));
-        svgElement.setAttribute('height', String(svgElement.viewBox.baseVal.height * zoom));
-      }
-    }
-  }, [selectedTab, diagramSvg, zoom]);
-
 
   const filteredActions = useMemo(() => {
     if (!analysisResult) return [];
@@ -207,31 +174,6 @@ export const FlowAnalysisPanel: React.FC<FlowAnalysisPanelProps> = ({
     link.href = URL.createObjectURL(blob);
     link.download = `${filename}.csv`;
     link.click();
-  };
-
-  const downloadDiagramAsSvg = async () => {
-    // Export at natural size, not whatever zoom is on screen, and embed the
-    // connector icons so the file stands alone outside the browser.
-    if (!diagramSvg) return;
-
-    const svg = await inlineDiagramImages(diagramSvg);
-    const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = `${flowName}-diagram.svg`;
-    link.click();
-    URL.revokeObjectURL(link.href);
-  };
-
-  const fitDiagramToWidth = () => {
-    const container = diagramRef.current;
-    const svgElement = container?.querySelector('svg');
-    if (!container || !svgElement) return;
-
-    const natural = svgElement.viewBox.baseVal.width;
-    if (!natural) return;
-    // Leave room for the container padding so the fit does not trigger a scrollbar.
-    setZoom(Math.min(1, (container.clientWidth - 36) / natural));
   };
 
   const exportHtmlReport = () => {
@@ -417,53 +359,15 @@ export const FlowAnalysisPanel: React.FC<FlowAnalysisPanelProps> = ({
   };
 
   const renderDiagram = () => {
-    if (!diagramSvg) {
-      return (
-        <Stack tokens={{ childrenGap: 12 }}>
-          <Text>No actions to display in the diagram.</Text>
-        </Stack>
-      );
-    }
-
+    if (!analysisResult) return null;
     return (
-      <Stack tokens={{ childrenGap: 12 }}>
-        <Stack horizontal tokens={{ childrenGap: 8 }} verticalAlign="center" wrap>
-          <DefaultButton
-            iconProps={{ iconName: 'Download' }}
-            text="Download SVG"
-            onClick={downloadDiagramAsSvg}
-          />
-          <DefaultButton
-            iconProps={{ iconName: 'ZoomOut' }}
-            title="Zoom out"
-            ariaLabel="Zoom out"
-            onClick={() => setZoom(z => Math.max(0.25, Math.round((z - 0.1) * 100) / 100))}
-          />
-          <DefaultButton
-            iconProps={{ iconName: 'ZoomIn' }}
-            title="Zoom in"
-            ariaLabel="Zoom in"
-            onClick={() => setZoom(z => Math.min(2.5, Math.round((z + 0.1) * 100) / 100))}
-          />
-          <DefaultButton
-            iconProps={{ iconName: 'FitWidth' }}
-            text="Fit"
-            onClick={fitDiagramToWidth}
-          />
-          <DefaultButton text="100%" onClick={() => setZoom(1)} />
-          <Text variant="small" styles={{ root: { color: '#605e5c' } }}>
-            {Math.round(zoom * 100)}%
-          </Text>
-        </Stack>
-        <div className={diagramContainerStyles} ref={diagramRef} />
-        <Stack horizontal tokens={{ childrenGap: 16 }} wrap>
-          <Text variant="small" styles={{ root: { color: '#605e5c' } }}>
-            Dashed connectors run after something other than plain success. The dots above a
-            card show which statuses: green succeeded, red failed, orange timed out, grey
-            skipped. Hover any card or connector for details.
-          </Text>
-        </Stack>
-      </Stack>
+      <FlowDiagramTab
+        actions={analysisResult.actions}
+        trigger={analysisResult.trigger}
+        flowDefinition={flowDefinition}
+        flowName={flowName}
+        onRevealRange={onRevealRange}
+      />
     );
   };
 

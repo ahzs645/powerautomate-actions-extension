@@ -167,6 +167,20 @@ export const FlowEditorPage: React.FC = () => {
         onDismiss={() => setAnalysisPanelOpen(false)}
         flowDefinition={editor?.getValue() || definition}
         flowName={name}
+        onRevealRange={(range) => {
+          if (!editor) return;
+          // Close the panel so the selection is actually visible in the editor.
+          setAnalysisPanelOpen(false);
+          const selection = new monaco.Range(
+            range.startLine,
+            range.startColumn,
+            range.endLine,
+            range.endColumn
+          );
+          editor.revealRangeInCenter(selection);
+          editor.setSelection(selection);
+          editor.focus();
+        }}
       />
       <FlowComparisonPanel
         isOpen={comparisonPanelOpen}

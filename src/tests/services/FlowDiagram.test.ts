@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { FlowAnalyzer } from '../../services/FlowAnalyzer';
-import { buildDiagram, generateFlowDiagramSvg } from '../../features/flow-editor/FlowDiagram';
+import { buildDiagram, generateFlowDiagramSvg, renderDiagramSvg } from '../../features/flow-editor/FlowDiagram';
 
 // A condition with a nested action, a failure path, and a multi-parent join -
 // the three shapes the previous grid renderer got wrong.
@@ -250,6 +250,58 @@ describe('buildDiagram', () => {
     }
   });
 });
+
+describe('render options', () => {
+  it('adds click targets and selection styling only when interactive', () => {
+    const result = analyze();
+    const diagram = buildDiagram(result.actions, result.trigger);
+
+    const interactive = renderDiagramSvg(diagram, { interactive: true });
+    expect(interactive).toContain('data-node="Read_the_Status"');
+    expect(interactive).toContain('data-frame="Alert_only_if_the_site_is_not_active"');
+    expect(interactive).toContain('pa-focus');
+    expect(interactive).toContain('cursor: pointer');
+
+    const staticSvg = renderDiagramSvg(diagram, { interactive: false });
+    expect(staticSvg).not.toContain('data-node');
+    expect(staticSvg).not.toContain('data-frame');
+    expect(staticSvg).not.toContain('pa-focus');
+    expect(staticSvg).not.toContain('cursor: pointer');
+  });
+
+  it('omits the decorative insert markers from the export', () => {
+    const result = analyze();
+    const diagram = buildDiagram(result.actions, result.trigger);
+
+    const onScreen = renderDiagramSvg(diagram, { showInsertMarkers: true });
+    const exported = renderDiagramSvg(diagram, { showInsertMarkers: false });
+
+    expect(diagram.plusPoints.length).toBeGreaterThan(0);
+    // The markers are the only user of the accent blue stroke circle.
+    expect(countOccurrences(onScreen, 'circle cx=')).toBeGreaterThan(
+      countOccurrences(exported, 'circle cx=')
+    );
+    // Cards and edges survive either way - connectors are the arrow-marked paths.
+    expect(exported).toContain('Notify Healthy Start');
+    expect(countOccurrences(exported, 'marker-end="url(#arrow)"')).toBe(
+      countOccurrences(onScreen, 'marker-end="url(#arrow)"')
+    );
+    expect(countOccurrences(exported, 'marker-end="url(#arrow)"')).toBe(diagram.edges.length);
+  });
+
+  it('defaults to a static export-safe render', () => {
+    const result = analyze();
+    const diagram = buildDiagram(result.actions, result.trigger);
+    const svg = renderDiagramSvg(diagram);
+
+    expect(svg).not.toContain('data-node');
+    expect(svg).not.toContain('pa-focus');
+  });
+});
+
+function countOccurrences(haystack: string, needle: string): number {
+  return haystack.split(needle).length - 1;
+}
 
 describe('renderDiagramSvg', () => {
   it('escapes action names into the markup', () => {
