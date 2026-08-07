@@ -20,7 +20,11 @@ export interface FlowAction {
   tier: string;
   connector: string;
   imgURL: string;
+  brandColor: string;
   runAfter: string;
+  /** runAfter with its statuses preserved, e.g. { Look_up_the_site: ['Failed', 'TimedOut'] }.
+   *  `runAfter` flattens to names only, which loses the failure paths the diagram needs. */
+  runAfterDetail: Record<string, string[]>;
   exception: string;
   index: number;
   Complexity: number;
@@ -34,6 +38,9 @@ export interface FlowAction {
   position: string;
   notes: string;
   parent: string;
+  /** Which branch of the parent this action sits in: '' for a plain scope/If-true branch,
+   *  'else' for the If false branch, or the case name for a Switch. */
+  branch: string;
   positionIndex: string;
   positionType: string;
   nested: number;
@@ -115,6 +122,7 @@ export class FlowAnalyzer {
   private connections: FlowConnection[] = [];
   private errors: string[] = [];
   private warnings: string[] = [];
+  private connectionRefs: Record<string, any> = {};
 
   // Configuration
   private config: IAnalysisConfig;
@@ -155,6 +163,9 @@ export class FlowAnalyzer {
       if (def.definition) {
         def = def.definition;
       }
+
+      // Connector branding is needed while walking the actions, so resolve it first
+      this.connectionRefs = this.definition.connectionReferences || {};
 
       // Analyze trigger
       const trigger = this.analyzeTrigger(def.triggers || def.$trigger);
@@ -217,6 +228,7 @@ export class FlowAnalyzer {
     this.connections = [];
     this.errors = [];
     this.warnings = [];
+    this.connectionRefs = {};
   }
 
   private getEmptyResult(name?: string, id?: string): FlowAnalysisResult {
@@ -304,7 +316,7 @@ export class FlowAnalyzer {
     };
   }
 
-  private analyzeActions(actions: any, parent: string, nestLevel: number): void {
+  private analyzeActions(actions: any, parent: string, nestLevel: number, branch: string = ''): void {
     if (!actions || typeof actions !== 'object') return;
 
     let index = 0;
@@ -320,6 +332,8 @@ export class FlowAnalyzer {
       const runAfter = action.runAfter
         ? Object.keys(action.runAfter).join(', ')
         : '';
+      const runAfterDetail = this.normalizeRunAfter(action.runAfter);
+      const branding = this.getConnectorBranding(action);
 
       // Check for exception handling
       const hasExceptionHandling = this.hasExceptionHandling(action);
@@ -333,8 +347,10 @@ export class FlowAnalyzer {
         hasId: action.metadata?.operationMetadataId ? 'Yes' : 'No',
         tier: this.getActionTier(action),
         connector: this.getConnector(action),
-        imgURL: '',
+        imgURL: branding.iconUri,
+        brandColor: branding.brandColor,
         runAfter,
+        runAfterDetail,
         exception: hasExceptionHandling ? 'Yes' : 'No',
         index,
         Complexity: complexity,
@@ -348,6 +364,7 @@ export class FlowAnalyzer {
         position: runAfter || 'First',
         notes: this.getActionNotes(action),
         parent,
+        branch,
         positionIndex: String(index),
         positionType: actionType,
         nested: nestLevel,
@@ -362,18 +379,18 @@ export class FlowAnalyzer {
         this.analyzeActions(action.actions, actionName, nestLevel + 1);
       }
       if (action.else?.actions) {
-        this.analyzeActions(action.else.actions, actionName, nestLevel + 1);
+        this.analyzeActions(action.else.actions, actionName, nestLevel + 1, 'else');
       }
       if (action.cases) {
         for (const [caseName, caseDef] of Object.entries(action.cases)) {
           const caseActions = (caseDef as any).actions;
           if (caseActions) {
-            this.analyzeActions(caseActions, `${actionName}/${caseName}`, nestLevel + 1);
+            this.analyzeActions(caseActions, `${actionName}/${caseName}`, nestLevel + 1, caseName);
           }
         }
       }
       if (action.default?.actions) {
-        this.analyzeActions(action.default.actions, `${actionName}/default`, nestLevel + 1);
+        this.analyzeActions(action.default.actions, `${actionName}/default`, nestLevel + 1, 'default');
       }
     }
   }
@@ -419,6 +436,47 @@ export class FlowAnalyzer {
       return action.inputs.host.connectionName;
     }
     return action.type || 'Unknown';
+  }
+
+  /** Keep the runAfter statuses so the diagram can tell a success path from a failure path. */
+  private normalizeRunAfter(runAfter: any): Record<string, string[]> {
+    if (!runAfter || typeof runAfter !== 'object') return {};
+
+    const normalized: Record<string, string[]> = {};
+    for (const [name, statuses] of Object.entries(runAfter)) {
+      normalized[name] = Array.isArray(statuses)
+        ? statuses.map(String)
+        : ['Succeeded'];
+    }
+    return normalized;
+  }
+
+  /** Look up the connector's icon and brand colour from the flow's connectionReferences.
+   *  Actions reference them by connectionName (e.g. "shared_excelonlinebusiness-1"), which is
+   *  the reference key, while apiId carries the unsuffixed connector id - try both. */
+  private getConnectorBranding(action: any): { iconUri: string; brandColor: string } {
+    const refs = this.connectionRefs || {};
+    const candidates = [
+      action?.inputs?.host?.connectionName,
+      this.getConnector(action),
+    ].filter(Boolean) as string[];
+
+    for (const key of candidates) {
+      const ref = refs[key];
+      if (ref) {
+        return { iconUri: ref.iconUri || '', brandColor: ref.brandColor || '' };
+      }
+    }
+
+    // Fall back to matching on the connector id embedded in the reference's apiName/id.
+    const connector = this.getConnector(action);
+    for (const ref of Object.values(refs) as any[]) {
+      if (ref?.apiName && connector.endsWith(ref.apiName)) {
+        return { iconUri: ref.iconUri || '', brandColor: ref.brandColor || '' };
+      }
+    }
+
+    return { iconUri: '', brandColor: '' };
   }
 
   private hasExceptionHandling(action: any): boolean {

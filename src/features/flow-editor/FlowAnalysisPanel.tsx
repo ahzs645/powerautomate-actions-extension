@@ -11,6 +11,7 @@ import { mergeStyles } from '@fluentui/react/lib/Styling';
 import { FlowAnalyzer, FlowAnalysisResult, FlowVariable } from '../../services/FlowAnalyzer';
 import { ExceptionAnalyzer, ExceptionAnalysisResult } from '../../services/ExceptionAnalyzer';
 import { ReportGenerator } from '../../services/ReportGenerator';
+import { generateFlowDiagramSvg, inlineDiagramImages } from './FlowDiagram';
 import { ExceptionAnalysisTab } from './ExceptionAnalysisTab';
 import { ApiActionsTab } from './ApiActionsTab';
 import { InputAnalysisTab } from './InputAnalysisTab';
@@ -63,6 +64,7 @@ export const FlowAnalysisPanel: React.FC<FlowAnalysisPanelProps> = ({
 }) => {
   const [searchText, setSearchText] = useState('');
   const [selectedTab, setSelectedTab] = useState('overview');
+  const [zoom, setZoom] = useState(1);
   const diagramRef = useRef<HTMLDivElement>(null);
 
   const analysisResult = useMemo<FlowAnalysisResult | null>(() => {
@@ -91,311 +93,30 @@ export const FlowAnalysisPanel: React.FC<FlowAnalysisPanelProps> = ({
     }
   }, [analysisResult]);
 
-  // Render diagram when tab is selected using pure SVG (no external dependencies)
+  // Diagram is laid out and drawn by FlowDiagram, which mirrors the designer's
+  // card canvas (nested scopes, condition branches, failure paths).
+  const diagramSvg = useMemo(() => {
+    if (!analysisResult) return '';
+    try {
+      return generateFlowDiagramSvg(analysisResult.actions, analysisResult.trigger);
+    } catch (error) {
+      console.error('Diagram error:', error);
+      return '';
+    }
+  }, [analysisResult]);
+
   useEffect(() => {
-    if (selectedTab === 'diagram' && diagramRef.current && analysisResult) {
-      const svg = generateFlowSvg(analysisResult.actions, analysisResult.trigger);
-      diagramRef.current.innerHTML = svg;
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedTab, analysisResult]);
-
-  // Generate SVG diagram from actions - proper flow hierarchy
-  const generateFlowSvg = (actions: FlowAnalysisResult['actions'], trigger: FlowAnalysisResult['trigger']) => {
-    if (!actions || actions.length === 0) {
-      return '<p style="color: #666; padding: 20px;">No actions to display in diagram.</p>';
-    }
-
-    const nodeWidth = 160;
-    const nodeHeight = 40;
-    const horizontalGap = 40;
-    const verticalGap = 60;
-    const branchGap = 200;
-    const padding = 30;
-
-    // Build action map
-    const actionMap = new Map<string, FlowAnalysisResult['actions'][0]>();
-    actions.forEach(a => actionMap.set(a.Name, a));
-
-    // Build dependency graph - find children of each action
-    const children = new Map<string, string[]>();
-    const parents = new Map<string, string[]>();
-
-    children.set('__trigger__', []);
-
-    actions.forEach(action => {
-      if (!children.has(action.Name)) {
-        children.set(action.Name, []);
-      }
-
-      const runAfterList = action.runAfter ? action.runAfter.split(', ').filter(Boolean) : [];
-      parents.set(action.Name, runAfterList);
-
-      if (runAfterList.length === 0 && !action.parent) {
-        // Root level action with no dependencies - connects to trigger
-        children.get('__trigger__')!.push(action.Name);
-      } else {
-        runAfterList.forEach(parentName => {
-          if (!children.has(parentName)) {
-            children.set(parentName, []);
-          }
-          children.get(parentName)!.push(action.Name);
-        });
-      }
-    });
-
-    // Calculate rows using topological sort
-    const rows: string[][] = [];
-    const visited = new Set<string>();
-    const rowAssignment = new Map<string, number>();
-
-    // Start with trigger
-    rows.push(['__trigger__']);
-    rowAssignment.set('__trigger__', 0);
-    visited.add('__trigger__');
-
-    // BFS to assign rows
-    let currentRow = 0;
-    while (currentRow < rows.length) {
-      const nextRowNodes: string[] = [];
-
-      for (const nodeName of rows[currentRow]) {
-        const nodeChildren = children.get(nodeName) || [];
-
-        for (const childName of nodeChildren) {
-          if (visited.has(childName)) continue;
-
-          // Check if all parents are visited
-          const childParents = parents.get(childName) || [];
-          const allParentsVisited = childParents.length === 0 ||
-            childParents.every(p => visited.has(p));
-
-          if (allParentsVisited) {
-            visited.add(childName);
-            nextRowNodes.push(childName);
-            rowAssignment.set(childName, currentRow + 1);
-          }
-        }
-      }
-
-      if (nextRowNodes.length > 0) {
-        rows.push(nextRowNodes);
-      }
-      currentRow++;
-    }
-
-    // Add any unvisited actions (orphans or complex dependencies)
-    actions.forEach(action => {
-      if (!visited.has(action.Name)) {
-        const lastRow = rows.length - 1;
-        rows[lastRow].push(action.Name);
-        rowAssignment.set(action.Name, lastRow);
-        visited.add(action.Name);
-      }
-    });
-
-    // Calculate positions
-    const positions = new Map<string, { x: number; y: number }>();
-
-    rows.forEach((row, rowIdx) => {
-      const startX = padding + (row.length > 1 ? 0 : (branchGap - nodeWidth) / 2);
-
-      row.forEach((nodeName, colIdx) => {
-        const x = startX + colIdx * (nodeWidth + horizontalGap);
-        const y = padding + rowIdx * (nodeHeight + verticalGap);
-        positions.set(nodeName, { x, y });
-      });
-    });
-
-    // Calculate SVG dimensions
-    const allPositions = Array.from(positions.values());
-    const maxX = Math.max(...allPositions.map(p => p.x)) + nodeWidth + padding * 2;
-    const maxY = Math.max(...allPositions.map(p => p.y)) + nodeHeight + padding * 2 + 20;
-
-    // Build SVG
-    let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${maxX}" height="${maxY}" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 10px;">`;
-
-    // Background
-    svg += `<rect width="100%" height="100%" fill="#fafafa" />`;
-
-    // Defs for markers
-    svg += `
-      <defs>
-        <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
-          <polygon points="0 0, 8 3, 0 6" fill="#666" />
-        </marker>
-        <marker id="arrowhead-red" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
-          <polygon points="0 0, 8 3, 0 6" fill="#cc4747" />
-        </marker>
-      </defs>
-    `;
-
-    // Draw connections
-    const drawnConnections = new Set<string>();
-
-    actions.forEach(action => {
-      const pos = positions.get(action.Name);
-      if (!pos) return;
-
-      const runAfterList = action.runAfter ? action.runAfter.split(', ').filter(Boolean) : [];
-
-      if (runAfterList.length === 0 && !action.parent) {
-        // Connect from trigger
-        const triggerPos = positions.get('__trigger__');
-        if (triggerPos) {
-          drawConnection(svg, triggerPos, pos, nodeWidth, nodeHeight, false);
-        }
-      }
-
-      runAfterList.forEach(parentName => {
-        const parentPos = positions.get(parentName);
-        if (parentPos) {
-          const connKey = `${parentName}->${action.Name}`;
-          if (!drawnConnections.has(connKey)) {
-            drawnConnections.add(connKey);
-            // Check if this is an error path
-            const isErrorPath = action.exception === 'Yes';
-            drawConnection(svg, parentPos, pos, nodeWidth, nodeHeight, isErrorPath);
-          }
-        }
-      });
-    });
-
-    function drawConnection(svgRef: string, from: {x: number, y: number}, to: {x: number, y: number}, w: number, h: number, isError: boolean) {
-      const startX = from.x + w / 2;
-      const startY = from.y + h;
-      const endX = to.x + w / 2;
-      const endY = to.y;
-
-      const midY = startY + (endY - startY) / 2;
-      const marker = isError ? 'url(#arrowhead-red)' : 'url(#arrowhead)';
-      const color = isError ? '#cc4747' : '#999';
-
-      if (Math.abs(startX - endX) < 5) {
-        // Straight line
-        svg += `<line x1="${startX}" y1="${startY}" x2="${endX}" y2="${endY - 5}"
-          stroke="${color}" stroke-width="1.5" marker-end="${marker}" />`;
-      } else {
-        // Curved path
-        svg += `<path d="M ${startX} ${startY} C ${startX} ${midY}, ${endX} ${midY}, ${endX} ${endY - 5}"
-          stroke="${color}" stroke-width="1.5" fill="none" marker-end="${marker}" />`;
+    if (selectedTab === 'diagram' && diagramRef.current) {
+      diagramRef.current.innerHTML = diagramSvg;
+      const svgElement = diagramRef.current.querySelector('svg');
+      if (svgElement) {
+        // Keep the intrinsic size in the viewBox and let zoom drive the rendered size.
+        svgElement.setAttribute('width', String(svgElement.viewBox.baseVal.width * zoom));
+        svgElement.setAttribute('height', String(svgElement.viewBox.baseVal.height * zoom));
       }
     }
+  }, [selectedTab, diagramSvg, zoom]);
 
-    // Draw trigger node
-    const triggerPos = positions.get('__trigger__')!;
-    svg += `
-      <rect x="${triggerPos.x}" y="${triggerPos.y}" width="${nodeWidth}" height="${nodeHeight}" rx="20" ry="20" fill="#569AE5" stroke="#4080c0" stroke-width="2" />
-      <text x="${triggerPos.x + nodeWidth / 2}" y="${triggerPos.y + nodeHeight / 2 + 4}" text-anchor="middle" fill="white" font-weight="bold">
-        ${escapeXml(truncateText(trigger?.name || 'Trigger', 18))}
-      </text>
-    `;
-
-    // Draw action nodes
-    actions.forEach(action => {
-      const pos = positions.get(action.Name);
-      if (!pos) return;
-
-      const { fill, stroke, shape, textColor } = getNodeStyle(action.Type);
-      const displayName = truncateText(action.Name, 20);
-
-      if (shape === 'diamond') {
-        // Diamond for conditions
-        const cx = pos.x + nodeWidth / 2;
-        const cy = pos.y + nodeHeight / 2;
-        svg += `
-          <polygon points="${cx},${pos.y - 5} ${pos.x + nodeWidth + 10},${cy} ${cx},${pos.y + nodeHeight + 5} ${pos.x - 10},${cy}"
-            fill="${fill}" stroke="${stroke}" stroke-width="2" />
-          <text x="${cx}" y="${cy + 3}" text-anchor="middle" fill="${textColor}" font-weight="bold" font-size="9">
-            ${escapeXml(displayName)}
-          </text>
-        `;
-      } else if (shape === 'hexagon') {
-        // Hexagon for loops
-        const cx = pos.x + nodeWidth / 2;
-        const offset = 12;
-        svg += `
-          <polygon points="${pos.x + offset},${pos.y} ${pos.x + nodeWidth - offset},${pos.y} ${pos.x + nodeWidth},${pos.y + nodeHeight / 2} ${pos.x + nodeWidth - offset},${pos.y + nodeHeight} ${pos.x + offset},${pos.y + nodeHeight} ${pos.x},${pos.y + nodeHeight / 2}"
-            fill="${fill}" stroke="${stroke}" stroke-width="2" />
-          <text x="${cx}" y="${pos.y + nodeHeight / 2 + 3}" text-anchor="middle" fill="${textColor}" font-weight="bold" font-size="9">
-            ${escapeXml(displayName)}
-          </text>
-        `;
-      } else if (shape === 'parallelogram') {
-        // Parallelogram for scopes
-        const skew = 10;
-        svg += `
-          <polygon points="${pos.x + skew},${pos.y} ${pos.x + nodeWidth + skew},${pos.y} ${pos.x + nodeWidth - skew},${pos.y + nodeHeight} ${pos.x - skew},${pos.y + nodeHeight}"
-            fill="${fill}" stroke="${stroke}" stroke-width="2" />
-          <text x="${pos.x + nodeWidth / 2}" y="${pos.y + nodeHeight / 2 + 3}" text-anchor="middle" fill="${textColor}" font-weight="bold" font-size="9">
-            ${escapeXml(displayName)}
-          </text>
-        `;
-      } else {
-        // Rectangle (default)
-        const rx = shape === 'rounded' ? 15 : 4;
-        svg += `
-          <rect x="${pos.x}" y="${pos.y}" width="${nodeWidth}" height="${nodeHeight}" rx="${rx}" ry="${rx}" fill="${fill}" stroke="${stroke}" stroke-width="2" />
-          <text x="${pos.x + nodeWidth / 2}" y="${pos.y + nodeHeight / 2 + 3}" text-anchor="middle" fill="${textColor}" font-weight="bold" font-size="9">
-            ${escapeXml(displayName)}
-          </text>
-        `;
-      }
-
-      // Add type label below
-      svg += `
-        <text x="${pos.x + nodeWidth / 2}" y="${pos.y + nodeHeight + 12}" text-anchor="middle" fill="#888" font-size="8">
-          ${escapeXml(action.Type)}
-        </text>
-      `;
-    });
-
-    svg += '</svg>';
-    return svg;
-  };
-
-  const getNodeStyle = (actionType: string): { fill: string; stroke: string; shape: string; textColor: string } => {
-    const styles: Record<string, { fill: string; stroke: string; shape: string; textColor: string }> = {
-      'If': { fill: '#2596be', stroke: '#1a7a9e', shape: 'diamond', textColor: 'white' },
-      'Switch': { fill: '#2596be', stroke: '#1a7a9e', shape: 'diamond', textColor: 'white' },
-      'Foreach': { fill: '#00C1A0', stroke: '#009a80', shape: 'hexagon', textColor: 'white' },
-      'Until': { fill: '#00C1A0', stroke: '#009a80', shape: 'hexagon', textColor: 'white' },
-      'Do_until': { fill: '#00C1A0', stroke: '#009a80', shape: 'hexagon', textColor: 'white' },
-      'Scope': { fill: '#808080', stroke: '#606060', shape: 'parallelogram', textColor: 'white' },
-      'InitializeVariable': { fill: '#9925be', stroke: '#7a1d9e', shape: 'rect', textColor: 'white' },
-      'SetVariable': { fill: '#9925be', stroke: '#7a1d9e', shape: 'rect', textColor: 'white' },
-      'AppendToArrayVariable': { fill: '#9925be', stroke: '#7a1d9e', shape: 'rect', textColor: 'white' },
-      'AppendToStringVariable': { fill: '#9925be', stroke: '#7a1d9e', shape: 'rect', textColor: 'white' },
-      'IncrementVariable': { fill: '#9925be', stroke: '#7a1d9e', shape: 'rect', textColor: 'white' },
-      'DecrementVariable': { fill: '#9925be', stroke: '#7a1d9e', shape: 'rect', textColor: 'white' },
-      'Terminate': { fill: '#cc4747', stroke: '#a63939', shape: 'rect', textColor: 'white' },
-      'Compose': { fill: '#EBDAF9', stroke: '#c9b0e0', shape: 'rect', textColor: '#333' },
-      'Http': { fill: '#ff8c00', stroke: '#cc7000', shape: 'rect', textColor: 'white' },
-      'Response': { fill: '#569AE5', stroke: '#4080c0', shape: 'rounded', textColor: 'white' },
-      'OpenApiConnection': { fill: '#0078d4', stroke: '#005a9e', shape: 'rect', textColor: 'white' },
-      'ApiConnection': { fill: '#0078d4', stroke: '#005a9e', shape: 'rect', textColor: 'white' },
-      'ParseJson': { fill: '#107c10', stroke: '#0b5c0b', shape: 'rect', textColor: 'white' },
-      'Select': { fill: '#107c10', stroke: '#0b5c0b', shape: 'rect', textColor: 'white' },
-      'Filter': { fill: '#107c10', stroke: '#0b5c0b', shape: 'rect', textColor: 'white' },
-      'Join': { fill: '#107c10', stroke: '#0b5c0b', shape: 'rect', textColor: 'white' },
-    };
-
-    return styles[actionType] || { fill: '#569AE5', stroke: '#4080c0', shape: 'rect', textColor: 'white' };
-  };
-
-  const truncateText = (text: string, maxLength: number): string => {
-    if (text.length <= maxLength) return text;
-    return text.substring(0, maxLength - 2) + '..';
-  };
-
-  const escapeXml = (text: string): string => {
-    return text
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&apos;');
-  };
 
   const filteredActions = useMemo(() => {
     if (!analysisResult) return [];
@@ -488,18 +209,29 @@ export const FlowAnalysisPanel: React.FC<FlowAnalysisPanelProps> = ({
     link.click();
   };
 
-  const downloadDiagramAsSvg = () => {
-    if (!diagramRef.current) return;
+  const downloadDiagramAsSvg = async () => {
+    // Export at natural size, not whatever zoom is on screen, and embed the
+    // connector icons so the file stands alone outside the browser.
+    if (!diagramSvg) return;
 
-    const svgElement = diagramRef.current.querySelector('svg');
-    if (svgElement) {
-      const svg = svgElement.outerHTML;
-      const blob = new Blob([svg], { type: 'image/svg+xml' });
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(blob);
-      link.download = `${flowName}-diagram.svg`;
-      link.click();
-    }
+    const svg = await inlineDiagramImages(diagramSvg);
+    const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `${flowName}-diagram.svg`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+  };
+
+  const fitDiagramToWidth = () => {
+    const container = diagramRef.current;
+    const svgElement = container?.querySelector('svg');
+    if (!container || !svgElement) return;
+
+    const natural = svgElement.viewBox.baseVal.width;
+    if (!natural) return;
+    // Leave room for the container padding so the fit does not trigger a scrollbar.
+    setZoom(Math.min(1, (container.clientWidth - 36) / natural));
   };
 
   const exportHtmlReport = () => {
@@ -685,18 +417,52 @@ export const FlowAnalysisPanel: React.FC<FlowAnalysisPanelProps> = ({
   };
 
   const renderDiagram = () => {
+    if (!diagramSvg) {
+      return (
+        <Stack tokens={{ childrenGap: 12 }}>
+          <Text>No actions to display in the diagram.</Text>
+        </Stack>
+      );
+    }
+
     return (
       <Stack tokens={{ childrenGap: 12 }}>
-        <Stack horizontal tokens={{ childrenGap: 12 }} verticalAlign="center">
+        <Stack horizontal tokens={{ childrenGap: 8 }} verticalAlign="center" wrap>
           <DefaultButton
             iconProps={{ iconName: 'Download' }}
             text="Download SVG"
             onClick={downloadDiagramAsSvg}
           />
+          <DefaultButton
+            iconProps={{ iconName: 'ZoomOut' }}
+            title="Zoom out"
+            ariaLabel="Zoom out"
+            onClick={() => setZoom(z => Math.max(0.25, Math.round((z - 0.1) * 100) / 100))}
+          />
+          <DefaultButton
+            iconProps={{ iconName: 'ZoomIn' }}
+            title="Zoom in"
+            ariaLabel="Zoom in"
+            onClick={() => setZoom(z => Math.min(2.5, Math.round((z + 0.1) * 100) / 100))}
+          />
+          <DefaultButton
+            iconProps={{ iconName: 'FitWidth' }}
+            text="Fit"
+            onClick={fitDiagramToWidth}
+          />
+          <DefaultButton text="100%" onClick={() => setZoom(1)} />
+          <Text variant="small" styles={{ root: { color: '#605e5c' } }}>
+            {Math.round(zoom * 100)}%
+          </Text>
         </Stack>
-        <div className={diagramContainerStyles} ref={diagramRef}>
-          <Text>Loading diagram...</Text>
-        </div>
+        <div className={diagramContainerStyles} ref={diagramRef} />
+        <Stack horizontal tokens={{ childrenGap: 16 }} wrap>
+          <Text variant="small" styles={{ root: { color: '#605e5c' } }}>
+            Dashed connectors run after something other than plain success. The dots above a
+            card show which statuses: green succeeded, red failed, orange timed out, grey
+            skipped. Hover any card or connector for details.
+          </Text>
+        </Stack>
       </Stack>
     );
   };
