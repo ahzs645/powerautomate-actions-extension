@@ -8,7 +8,7 @@ import { SearchBox } from '@fluentui/react/lib/SearchBox';
 import { DefaultButton } from '@fluentui/react/lib/Button';
 import { ProgressIndicator } from '@fluentui/react/lib/ProgressIndicator';
 import { mergeStyles } from '@fluentui/react/lib/Styling';
-import { FlowAnalyzer, FlowAnalysisResult, FlowVariable } from '../../services/FlowAnalyzer';
+import { FlowAnalyzer, FlowAnalysisResult, FlowVariable, FlowAction } from '../../services/FlowAnalyzer';
 import { ExceptionAnalyzer, ExceptionAnalysisResult } from '../../services/ExceptionAnalyzer';
 import { ReportGenerator } from '../../services/ReportGenerator';
 import { FlowDiagramTab } from './FlowDiagramTab';
@@ -58,6 +58,8 @@ export const FlowAnalysisPanel: React.FC<FlowAnalysisPanelProps> = ({
 }) => {
   const [searchText, setSearchText] = useState('');
   const [selectedTab, setSelectedTab] = useState('overview');
+  // Shared by the diagram and the Actions table so they stay in step.
+  const [selectedAction, setSelectedAction] = useState<string | null>(null);
 
   const analysisResult = useMemo<FlowAnalysisResult | null>(() => {
     if (!flowDefinition || !isOpen) return null;
@@ -301,6 +303,20 @@ export const FlowAnalysisPanel: React.FC<FlowAnalysisPanelProps> = ({
           layoutMode={DetailsListLayoutMode.justified}
           selectionMode={SelectionMode.none}
           isHeaderVisible={true}
+          // Picking a row here selects the same node on the Diagram tab.
+          onActiveItemChanged={(item?: FlowAction) => {
+            if (item) setSelectedAction(item.Name);
+          }}
+          onRenderRow={(props, defaultRender) => {
+            if (!props || !defaultRender) return null;
+            const isSelected = (props.item as FlowAction).Name === selectedAction;
+            return defaultRender({
+              ...props,
+              styles: isSelected
+                ? { root: { backgroundColor: '#eff6fc', borderLeft: '3px solid #0078d4' } }
+                : undefined,
+            });
+          }}
         />
       </Stack>
     );
@@ -366,6 +382,9 @@ export const FlowAnalysisPanel: React.FC<FlowAnalysisPanelProps> = ({
         trigger={analysisResult.trigger}
         flowDefinition={flowDefinition}
         flowName={flowName}
+        selectedKey={selectedAction}
+        onSelect={setSelectedAction}
+        searchText={searchText}
         onRevealRange={onRevealRange}
       />
     );

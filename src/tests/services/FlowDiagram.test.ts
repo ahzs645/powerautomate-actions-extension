@@ -251,6 +251,170 @@ describe('buildDiagram', () => {
   });
 });
 
+describe('containers', () => {
+  const SCOPED = {
+    definition: {
+      triggers: { Manual: { type: 'Request' } },
+      actions: {
+        Try_scope: {
+          type: 'Scope',
+          runAfter: {},
+          actions: {
+            Step_one: { type: 'Compose', runAfter: {} },
+            Step_two: { type: 'Compose', runAfter: { Step_one: ['Succeeded'] } },
+          },
+        },
+        Catch_scope: {
+          type: 'Scope',
+          runAfter: { Try_scope: ['Failed'] },
+          actions: { Log_it: { type: 'Compose', runAfter: {} } },
+        },
+      },
+    },
+  };
+
+  function scoped() {
+    const result = new FlowAnalyzer().analyze(SCOPED, 'Scoped');
+    return { result, diagram: buildDiagram(result.actions, result.trigger) };
+  }
+
+  it('gives a single-body scope one frame, not a frame inside a frame', () => {
+    const { diagram } = scoped();
+
+    const owned = diagram.frames.filter(f => f.ownerKey === 'Try_scope');
+    expect(owned).toHaveLength(1);
+    expect(owned[0].kind).toBe('container');
+    // An If still gets its per-branch frames.
+    const ifResult = analyze();
+    const ifDiagram = buildDiagram(ifResult.actions, ifResult.trigger);
+    expect(
+      ifDiagram.frames.filter(f => f.ownerKey === 'Alert_only_if_the_site_is_not_active')
+    ).toHaveLength(3); // container + True + False
+  });
+
+  it('starts an outgoing connector below the scope body, not under its header', () => {
+    const { diagram } = scoped();
+
+    const container = diagram.frames.find(
+      f => f.kind === 'container' && f.ownerKey === 'Try_scope'
+    )!;
+    const catchCard = diagram.nodes.find(n => n.key === 'Catch_scope')!;
+
+    // The Try_scope -> Catch_scope edge must begin at or below the container's
+    // bottom edge; starting at the header would drag it through the scope body.
+    const start = diagram.edges
+      .map(e => /^M ([\d.]+) ([\d.]+)/.exec(e.path))
+      .filter(Boolean)
+      .map(m => ({ x: parseFloat(m![1]), y: parseFloat(m![2]) }))
+      .find(p => Math.abs(p.y - (container.y + container.h)) < 1);
+
+    expect(start).toBeDefined();
+    expect(catchCard.y).toBeGreaterThan(container.y + container.h);
+  });
+
+  it('does not treat a scope as an obstacle for its own children', () => {
+    const { diagram } = scoped();
+
+    // Step_one -> Step_two sits wholly inside Try_scope, so it stays a straight drop.
+    const corners = diagram.edges.map(e => (e.path.match(/Q /g) || []).length);
+    expect(Math.max(...corners)).toBeLessThanOrEqual(2);
+  });
+});
+
+describe('collapse', () => {
+  const SWITCHY = (caseCount: number) => {
+    const cases: Record<string, unknown> = {};
+    for (let i = 1; i <= caseCount; i++) {
+      cases[`Case_${i}`] = { actions: { [`Send_${i}`]: { type: 'Compose', runAfter: {} } } };
+    }
+    return {
+      definition: {
+        triggers: { Manual: { type: 'Request' } },
+        actions: {
+          Wide_switch: { type: 'Switch', runAfter: {}, cases },
+          Final_step: { type: 'Terminate', runAfter: { Wide_switch: ['Succeeded'] } },
+        },
+      },
+    };
+  };
+
+  it('hides a collapsed container body and reports what is inside', () => {
+    const result = analyze();
+    const key = 'Alert_only_if_the_site_is_not_active';
+    const open = buildDiagram(result.actions, result.trigger);
+    const shut = buildDiagram(result.actions, result.trigger, { collapsed: new Set([key]) });
+
+    // The nested action disappears from the canvas entirely.
+    expect(open.nodes.map(n => n.key)).toContain('Notify_Healthy_Start');
+    expect(shut.nodes.map(n => n.key)).not.toContain('Notify_Healthy_Start');
+
+    // Branch frames go too, leaving one container frame carrying the count.
+    expect(shut.frames.filter(f => f.ownerKey === key)).toHaveLength(1);
+    expect(shut.frames.find(f => f.ownerKey === key)!.summary).toBe('1 Action');
+
+    expect(shut.nodes.find(n => n.key === key)!.collapsed).toBe(true);
+    expect(open.nodes.find(n => n.key === key)!.collapsed).toBe(false);
+    expect(shut.height).toBeLessThan(open.height);
+  });
+
+  it('counts cases rather than actions for a Switch', () => {
+    const result = new FlowAnalyzer().analyze(SWITCHY(3), 'S');
+    const diagram = buildDiagram(result.actions, result.trigger, {
+      collapsed: new Set(['Wide_switch']),
+    });
+
+    expect(diagram.frames.find(f => f.ownerKey === 'Wide_switch')!.summary).toBe('3 Cases');
+  });
+
+  it('keeps connectors intact around a collapsed container', () => {
+    const result = new FlowAnalyzer().analyze(SWITCHY(3), 'S');
+    const diagram = buildDiagram(result.actions, result.trigger, {
+      collapsed: new Set(['Wide_switch']),
+    });
+
+    const sw = diagram.nodes.find(n => n.key === 'Wide_switch')!;
+    const final = diagram.nodes.find(n => n.key === 'Final_step')!;
+    expect(final.y).toBeGreaterThan(sw.y + sw.h);
+  });
+});
+
+describe('wide switches', () => {
+  function wide(caseCount: number) {
+    const cases: Record<string, unknown> = {};
+    for (let i = 1; i <= caseCount; i++) {
+      cases[`Case_${i}`] = { actions: { [`Send_${i}`]: { type: 'Compose', runAfter: {} } } };
+    }
+    const result = new FlowAnalyzer().analyze(
+      { definition: { triggers: { Manual: { type: 'Request' } }, actions: {
+        Wide_switch: { type: 'Switch', runAfter: {}, cases } } } },
+      'W'
+    );
+    return buildDiagram(result.actions, result.trigger);
+  }
+
+  it('wraps branches into rows instead of growing without bound', () => {
+    const three = wide(3);
+    const six = wide(6);
+
+    const rowsOf = (d: ReturnType<typeof wide>) =>
+      new Set(d.frames.filter(f => f.kind === 'branch').map(f => f.row));
+
+    expect(rowsOf(three).size).toBe(1);
+    expect(rowsOf(six).size).toBe(2);
+    // Doubling the cases must not double the width.
+    expect(six.width).toBeLessThan(three.width * 1.5);
+  });
+
+  it('fans out only to the first row, so no line crosses the row above', () => {
+    const six = wide(6);
+    const firstRow = six.frames.filter(f => f.kind === 'branch' && f.row === 0);
+    const curves = six.edges.filter(e => e.path.indexOf('C ') >= 0);
+
+    expect(firstRow).toHaveLength(3);
+    expect(curves).toHaveLength(firstRow.length);
+  });
+});
+
 describe('render options', () => {
   it('adds click targets and selection styling only when interactive', () => {
     const result = analyze();

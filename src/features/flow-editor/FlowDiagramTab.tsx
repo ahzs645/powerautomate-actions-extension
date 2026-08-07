@@ -14,17 +14,19 @@ export interface FlowDiagramTabProps {
   /** Raw JSON text, used to map a selected node back to real editor lines. */
   flowDefinition: string;
   flowName: string;
+  /** Selection is shared with the other tabs, so the panel owns it. */
+  selectedKey: string | null;
+  onSelect: (key: string | null) => void;
+  /** Panel search text; matching cards are highlighted and the rest dimmed. */
+  searchText?: string;
   /** Provided by the host page to jump the Monaco editor to the selection. */
   onRevealRange?: (range: JsonRange) => void;
 }
 
 const TRIGGER_KEY = '__trigger__';
+const CONTAINER_TYPES = ['If', 'Switch', 'Scope', 'Foreach', 'Until', 'Do_until'];
 
-const layoutStyles = mergeStyles({
-  display: 'flex',
-  gap: '12px',
-  alignItems: 'stretch',
-});
+const layoutStyles = mergeStyles({ display: 'flex', gap: '12px', alignItems: 'stretch' });
 
 const canvasStyles = mergeStyles({
   flex: '1 1 auto',
@@ -35,6 +37,8 @@ const canvasStyles = mergeStyles({
   overflow: 'auto',
   minHeight: '420px',
   maxHeight: '620px',
+  cursor: 'grab',
+  ':active': { cursor: 'grabbing' },
 });
 
 const sidebarStyles = mergeStyles({
@@ -82,22 +86,39 @@ export const FlowDiagramTab: React.FC<FlowDiagramTabProps> = ({
   trigger,
   flowDefinition,
   flowName,
+  selectedKey,
+  onSelect,
+  searchText,
   onRevealRange,
 }) => {
   const [zoom, setZoom] = useState(1);
-  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [copied, setCopied] = useState(false);
   const canvasRef = useRef<HTMLDivElement>(null);
+  const panRef = useRef<{ x: number; y: number; left: number; top: number } | null>(null);
+  const draggedRef = useRef(false);
+
+  const containers = useMemo(
+    () =>
+      actions
+        .filter(
+          a =>
+            CONTAINER_TYPES.indexOf(a.Type) >= 0 &&
+            actions.some(child => (child.parent || '').split('/')[0] === a.Name)
+        )
+        .map(a => a.Name),
+    [actions]
+  );
 
   const diagram = useMemo(() => {
     if (!actions || actions.length === 0) return null;
     try {
-      return buildDiagram(actions, trigger);
+      return buildDiagram(actions, trigger, { collapsed });
     } catch (error) {
       console.error('Diagram layout error:', error);
       return null;
     }
-  }, [actions, trigger]);
+  }, [actions, trigger, collapsed]);
 
   // On screen the diagram is interactive and keeps the designer's insert
   // affordance; the export drops both so the file is clean, static artwork.
@@ -107,8 +128,7 @@ export const FlowDiagramTab: React.FC<FlowDiagramTabProps> = ({
   );
 
   useEffect(() => {
-    if (!canvasRef.current) return;
-    canvasRef.current.innerHTML = interactiveSvg;
+    if (canvasRef.current) canvasRef.current.innerHTML = interactiveSvg;
   }, [interactiveSvg]);
 
   // Zoom is applied to the rendered size only; the viewBox keeps intrinsic units.
@@ -119,16 +139,57 @@ export const FlowDiagramTab: React.FC<FlowDiagramTabProps> = ({
     svg.setAttribute('height', String(svg.viewBox.baseVal.height * zoom));
   }, [interactiveSvg, zoom]);
 
-  // Applied as an attribute rather than by re-rendering, so scroll position holds.
+  // Selection and search are applied as attributes rather than by re-rendering,
+  // so scroll position and zoom survive.
   useEffect(() => {
     const root = canvasRef.current;
     if (!root) return;
 
+    const term = (searchText || '').trim().toLowerCase();
+    const matches = new Set(
+      term
+        ? actions
+            .filter(
+              a =>
+                a.Name.toLowerCase().includes(term) ||
+                a.Type.toLowerCase().includes(term) ||
+                (a.connector || '').toLowerCase().includes(term)
+            )
+            .map(a => a.Name)
+        : []
+    );
+
     root.querySelectorAll('[data-node], [data-frame]').forEach(el => {
       const key = el.getAttribute('data-node') || el.getAttribute('data-frame');
-      if (key && key === selectedKey) el.setAttribute('data-selected', 'true');
+      if (!key) return;
+
+      if (key === selectedKey) el.setAttribute('data-selected', 'true');
       else el.removeAttribute('data-selected');
+
+      if (!el.hasAttribute('data-node')) return;
+      if (term && matches.has(key)) {
+        el.setAttribute('data-match', 'true');
+        el.removeAttribute('data-dimmed');
+      } else if (term && key !== TRIGGER_KEY) {
+        el.removeAttribute('data-match');
+        el.setAttribute('data-dimmed', 'true');
+      } else {
+        el.removeAttribute('data-match');
+        el.removeAttribute('data-dimmed');
+      }
     });
+  }, [selectedKey, interactiveSvg, searchText, actions]);
+
+  // Selection can arrive from another tab, so bring it into view.
+  useEffect(() => {
+    if (!selectedKey || !canvasRef.current) return;
+    // CSS.escape is not in every host (older WebViews, jsdom), so fall back.
+    const escaped =
+      typeof CSS !== 'undefined' && CSS.escape
+        ? CSS.escape(selectedKey)
+        : selectedKey.replace(/["\\]/g, '\\$&');
+    const el = canvasRef.current.querySelector(`[data-node="${escaped}"]`);
+    el?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }, [selectedKey, interactiveSvg]);
 
   const selectedAction = useMemo(
@@ -142,27 +203,83 @@ export const FlowDiagramTab: React.FC<FlowDiagramTabProps> = ({
     return name ? findActionRange(flowDefinition, name) : null;
   }, [selectedKey, flowDefinition, trigger]);
 
-  const handleCanvasClick = useCallback((event: React.MouseEvent) => {
-    const target = event.target as Element | null;
-    const hit = target?.closest?.('[data-node], [data-frame]');
-    if (!hit) {
-      setSelectedKey(null);
-      return;
-    }
-    setSelectedKey(hit.getAttribute('data-node') || hit.getAttribute('data-frame'));
+  const toggleCollapse = useCallback((key: string) => {
+    setCollapsed(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
   }, []);
 
-  const handleCanvasKeyDown = useCallback((event: React.KeyboardEvent) => {
-    if (event.key === 'Escape') {
-      setSelectedKey(null);
-      return;
-    }
-    if (event.key !== 'Enter' && event.key !== ' ') return;
+  const handleCanvasClick = useCallback(
+    (event: React.MouseEvent) => {
+      if (draggedRef.current) return; // the click was the end of a pan
 
-    const hit = (event.target as Element | null)?.closest?.('[data-node], [data-frame]');
-    if (!hit) return;
-    event.preventDefault();
-    setSelectedKey(hit.getAttribute('data-node') || hit.getAttribute('data-frame'));
+      const target = event.target as Element | null;
+
+      const toggle = target?.closest?.('[data-toggle]');
+      if (toggle) {
+        toggleCollapse(toggle.getAttribute('data-toggle')!);
+        return;
+      }
+
+      const hit = target?.closest?.('[data-node], [data-frame]');
+      onSelect(hit ? hit.getAttribute('data-node') || hit.getAttribute('data-frame') : null);
+    },
+    [onSelect, toggleCollapse]
+  );
+
+  const handleCanvasKeyDown = useCallback(
+    (event: React.KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onSelect(null);
+        return;
+      }
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+
+      const hit = (event.target as Element | null)?.closest?.('[data-node], [data-frame]');
+      if (!hit) return;
+      event.preventDefault();
+      onSelect(hit.getAttribute('data-node') || hit.getAttribute('data-frame'));
+    },
+    [onSelect]
+  );
+
+  // --- drag to pan ----------------------------------------------------------
+  const handleMouseDown = useCallback((event: React.MouseEvent) => {
+    const container = canvasRef.current;
+    if (!container || event.button !== 0) return;
+    draggedRef.current = false;
+    panRef.current = {
+      x: event.clientX,
+      y: event.clientY,
+      left: container.scrollLeft,
+      top: container.scrollTop,
+    };
+  }, []);
+
+  const handleMouseMove = useCallback((event: React.MouseEvent) => {
+    const container = canvasRef.current;
+    const pan = panRef.current;
+    if (!container || !pan) return;
+
+    const dx = event.clientX - pan.x;
+    const dy = event.clientY - pan.y;
+    // Below this the gesture is still a click, not a drag.
+    if (!draggedRef.current && Math.abs(dx) + Math.abs(dy) < 5) return;
+
+    draggedRef.current = true;
+    container.scrollLeft = pan.left - dx;
+    container.scrollTop = pan.top - dy;
+  }, []);
+
+  const endPan = useCallback(() => {
+    panRef.current = null;
+    // Cleared after the click event has had a chance to read it.
+    window.setTimeout(() => {
+      draggedRef.current = false;
+    }, 0);
   }, []);
 
   const fitToWidth = useCallback(() => {
@@ -172,6 +289,8 @@ export const FlowDiagramTab: React.FC<FlowDiagramTabProps> = ({
     const natural = svg.viewBox.baseVal.width;
     if (natural) setZoom(Math.min(1, (container.clientWidth - 24) / natural));
   }, []);
+
+  const allCollapsed = containers.length > 0 && containers.every(c => collapsed.has(c));
 
   const downloadSvg = useCallback(async () => {
     if (!diagram) return;
@@ -195,9 +314,7 @@ export const FlowDiagramTab: React.FC<FlowDiagramTabProps> = ({
     window.setTimeout(() => setCopied(false), 2000);
   }, [selectedRange, selectedAction]);
 
-  if (!diagram) {
-    return <Text>No actions to display in the diagram.</Text>;
-  }
+  if (!diagram) return <Text>No actions to display in the diagram.</Text>;
 
   return (
     <Stack tokens={{ childrenGap: 12 }}>
@@ -217,6 +334,13 @@ export const FlowDiagramTab: React.FC<FlowDiagramTabProps> = ({
         />
         <DefaultButton iconProps={{ iconName: 'FitWidth' }} text="Fit" onClick={fitToWidth} />
         <DefaultButton text="100%" onClick={() => setZoom(1)} />
+        {containers.length > 0 && (
+          <DefaultButton
+            iconProps={{ iconName: allCollapsed ? 'ExploreContent' : 'CollapseContent' }}
+            text={allCollapsed ? 'Expand all' : 'Collapse all'}
+            onClick={() => setCollapsed(allCollapsed ? new Set() : new Set(containers))}
+          />
+        )}
         <Text variant="small" styles={{ root: { color: '#605e5c' } }}>
           {Math.round(zoom * 100)}%
         </Text>
@@ -229,6 +353,10 @@ export const FlowDiagramTab: React.FC<FlowDiagramTabProps> = ({
           ref={canvasRef}
           onClick={handleCanvasClick}
           onKeyDown={handleCanvasKeyDown}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={endPan}
+          onMouseLeave={endPan}
           role="application"
           aria-label="Flow diagram"
         />
@@ -245,7 +373,7 @@ export const FlowDiagramTab: React.FC<FlowDiagramTabProps> = ({
                 iconProps={{ iconName: 'Cancel' }}
                 title="Clear selection"
                 ariaLabel="Clear selection"
-                onClick={() => setSelectedKey(null)}
+                onClick={() => onSelect(null)}
               />
             </Stack>
 
@@ -258,7 +386,10 @@ export const FlowDiagramTab: React.FC<FlowDiagramTabProps> = ({
             <div className={fieldLabelStyles}>Definition</div>
             {selectedRange ? (
               <>
-                <Text variant="small" styles={{ root: { color: '#605e5c', display: 'block', marginBottom: 4 } }}>
+                <Text
+                  variant="small"
+                  styles={{ root: { color: '#605e5c', display: 'block', marginBottom: 4 } }}
+                >
                   Lines {selectedRange.startLine}–{selectedRange.endLine}
                 </Text>
                 <pre className={codeStyles}>{selectedRange.text}</pre>
@@ -289,9 +420,9 @@ export const FlowDiagramTab: React.FC<FlowDiagramTabProps> = ({
       </div>
 
       <Text variant="small" styles={{ root: { color: '#605e5c' } }}>
-        Select a card or a scope to inspect it. Dashed connectors run after something other
-        than plain success; the dots above a card show which statuses: green succeeded, red
-        failed, orange timed out, grey skipped.
+        Click a card to inspect it, the chevron on a scope to collapse it, or drag to pan.
+        Dashed connectors run after something other than plain success; the dots above a card
+        show which statuses: green succeeded, red failed, orange timed out, grey skipped.
       </Text>
     </Stack>
   );
@@ -311,6 +442,8 @@ const ActionDetails: React.FC<{ action: FlowAction | null }> = ({ action }) => {
   if (!action) return null;
 
   const runAfter = Object.keys(action.runAfterDetail || {});
+  // A Switch case is parented as "Switch_name/case_name"; show them separately.
+  const [container, caseName] = (action.parent || '').split('/');
 
   return (
     <div style={{ marginTop: 10 }}>
@@ -328,8 +461,8 @@ const ActionDetails: React.FC<{ action: FlowAction | null }> = ({ action }) => {
           </div>
         </>
       )}
-      <Field label="Nested in" value={action.parent?.replace(/_/g, ' ')} />
-      <Field label="Branch" value={action.branch} />
+      <Field label="Nested in" value={container?.replace(/_/g, ' ')} />
+      <Field label="Branch" value={caseName?.replace(/_/g, ' ') || action.branch} />
       <Field label="Detail" value={action.detail} />
       <Field label="Filter" value={action.filter} />
       <Field label="Pagination" value={action.pagination} />
