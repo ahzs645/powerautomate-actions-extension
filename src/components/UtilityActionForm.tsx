@@ -251,7 +251,7 @@ const UtilityActionForm: React.FC<IUtilityActionFormProps> = ({
                     </MessageBar>
                 )}
 
-                <Text variant="xSmall" styles={{ root: { fontFamily: 'Consolas, monospace', color: '#605e5c' } }}>
+                <Text variant="xSmall" styles={{ root: { fontFamily: 'Consolas, monospace', color: 'var(--color-fg-secondary)' } }}>
                     POST {utilityActionsService.buildUri(action.route, config)}
                 </Text>
 

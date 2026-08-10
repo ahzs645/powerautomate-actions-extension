@@ -371,7 +371,7 @@ export const useFlowEditor = () => {
   };
 };
 
-function getFlowUrl(envId: string | null, flowId: string | null, isPowerPlatform: boolean) {
+export function getFlowUrl(envId: string | null, flowId: string | null, isPowerPlatform: boolean) {
   if (!envId || !flowId) {
     throw new Error('Missing environment ID or flow ID');
   }

@@ -3,6 +3,11 @@ import { FlowEditorActions } from './interfaces/IFlowEditorActions';
 
 export interface IApiProvider {
   get(url: string): Promise<any>;
+  /**
+   * GET a fully-qualified URL as returned by the API itself (paging `nextLink`s
+   * already carry their own host and api-version, so they must not be rewritten).
+   */
+  getAbsolute(url: string): Promise<any>;
   patch(url: string, data: any): Promise<any>;
   post(url: string, data: any): Promise<any>;
   isApiReady: boolean;
@@ -35,7 +40,7 @@ export const ApiProviderContextRoot = (): IApiProvider => {
   const [apiDetails, setApiDetails] = useState<IApiDetails>({ isReady: false });
 
   const http = useMemo(
-    () => async (url: string, method: string, data?: any, retryCount = 0): Promise<any> => {
+    () => async (url: string, method: string, data?: any, retryCount = 0, isAbsolute = false): Promise<any> => {
       const maxRetries = 3;
       const retryDelay = 1000;
 
@@ -48,10 +53,12 @@ export const ApiProviderContextRoot = (): IApiProvider => {
       // legacy powerapps/flow APIs use api-version=2016-11-01
       const isPP = apiDetails.apiUrl?.includes('.api.powerplatform.com');
       const apiVersion = isPP ? '1' : '2016-11-01';
-      const fullUrl = endpointUrl +
-        (endpointUrl.includes('?')
-          ? `&api-version=${apiVersion}`
-          : `?api-version=${apiVersion}`);
+      const fullUrl = isAbsolute
+        ? url
+        : endpointUrl +
+          (endpointUrl.includes('?')
+            ? `&api-version=${apiVersion}`
+            : `?api-version=${apiVersion}`);
 
       debugLog(`${method} request to:`, fullUrl);
       if (data) {
@@ -105,7 +112,7 @@ export const ApiProviderContextRoot = (): IApiProvider => {
           if (retryCount < maxRetries) {
             debugLog(`Rate limited, retrying in ${retryDelay}ms (attempt ${retryCount + 1}/${maxRetries})`);
             await new Promise(resolve => setTimeout(resolve, retryDelay * (retryCount + 1)));
-            return http(url, method, data, retryCount + 1);
+            return http(url, method, data, retryCount + 1, isAbsolute);
           }
           throw new Error('Too many requests. Please wait a moment and try again.');
         }
@@ -115,7 +122,7 @@ export const ApiProviderContextRoot = (): IApiProvider => {
           if (retryCount < maxRetries) {
             debugLog(`Server error, retrying in ${retryDelay}ms (attempt ${retryCount + 1}/${maxRetries})`);
             await new Promise(resolve => setTimeout(resolve, retryDelay * (retryCount + 1)));
-            return http(url, method, data, retryCount + 1);
+            return http(url, method, data, retryCount + 1, isAbsolute);
           }
           const serverMsg = body?.error?.message || body?.message || '';
           throw new Error(`Server error (${response.status})${serverMsg ? ': ' + serverMsg : '. Please try again later.'}`);
@@ -141,7 +148,7 @@ export const ApiProviderContextRoot = (): IApiProvider => {
           if (retryCount < maxRetries) {
             debugLog(`Network error, retrying in ${retryDelay}ms (attempt ${retryCount + 1}/${maxRetries})`);
             await new Promise(resolve => setTimeout(resolve, retryDelay * (retryCount + 1)));
-            return http(url, method, data, retryCount + 1);
+            return http(url, method, data, retryCount + 1, isAbsolute);
           }
           throw new Error('Network error. Please check your connection and try again.');
         }
@@ -189,6 +196,7 @@ export const ApiProviderContextRoot = (): IApiProvider => {
 
   return {
     get: (url: string) => http(url, 'GET'),
+    getAbsolute: (url: string) => http(url, 'GET', undefined, 0, true),
     patch: (url: string, data: any) => http(url, 'PATCH', data),
     post: (url: string, data: any) => http(url, 'POST', data),
     isApiReady: apiDetails.isReady,

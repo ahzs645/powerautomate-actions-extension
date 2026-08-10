@@ -14,6 +14,8 @@ interface FlowEditorState {
     apiUrl?: string;
     tokenExpires?: Date;
     lastMatchedRequest?: { envId: string; flowId: string } | null;
+    // Environment of the page even when no single flow is open (e.g. the flows list)
+    lastMatchedEnvId?: string;
     initiatorTabId?: number;
     flowEditorTabIds: Set<number>;
     lastSentToken?: string; // Track what was last sent to editors to avoid noisy broadcasts
@@ -230,6 +232,38 @@ function shouldUpdateApiUrl(currentApiUrl: string | undefined, newUrl: string): 
     return true;
 }
 
+// URL pattern matching for environment extraction. The flows list page
+// (/environments/{envId}/flows) carries an environment but no flow, so this is
+// deliberately separate from the flow-level extraction below.
+function extractEnvIdFromTabUrl(url?: string): string | null {
+    if (!url) {
+        return null;
+    }
+
+    const envPatterns = [
+        // Trailing slash optional so the flows list URL (…/environments/{id}/flows
+        // and the bare …/environments/{id}) both match.
+        /\/environments\/([a-zA-Z0-9-]+)/i,
+        /environment\/([a-zA-Z0-9-]+)/i,
+        /\/environment=([a-zA-Z0-9-]+)/i,
+        /envid=([a-zA-Z0-9-]+)/i,
+        /[?&]environmentId=([a-zA-Z0-9-]+)/i,
+        /[?&]env=([a-zA-Z0-9-]+)/i,
+        /environments%2F([a-zA-Z0-9-]+)/i,
+    ];
+
+    for (const pattern of envPatterns) {
+        const result = pattern.exec(url);
+        if (result) {
+            debugLog('Environment ID found:', result[1]);
+            return result[1];
+        }
+    }
+
+    debugLog('No environment ID found in URL');
+    return null;
+}
+
 // URL pattern matching for flow data extraction
 function extractFlowDataFromTabUrl(url?: string): { envId: string; flowId: string } | null {
     if (!url) {
@@ -238,28 +272,9 @@ function extractFlowDataFromTabUrl(url?: string): { envId: string; flowId: strin
 
     debugLog('Extracting flow data from tab URL:', url);
 
-    const envPatterns = [
-        /\/environments\/([a-zA-Z0-9-]*)\//i,
-        /environment\/([a-zA-Z0-9-]*)\//i,
-        /\/environment=([a-zA-Z0-9-]*)/i,
-        /envid=([a-zA-Z0-9-]*)/i,
-        /[?&]environmentId=([a-zA-Z0-9-]*)/i,
-        /[?&]env=([a-zA-Z0-9-]*)/i,
-        /environments%2F([a-zA-Z0-9-]*)/i,
-    ];
+    const envId = extractEnvIdFromTabUrl(url);
 
-    let envResult: RegExpExecArray | null = null;
-
-    for (const pattern of envPatterns) {
-        envResult = pattern.exec(url);
-        if (envResult) {
-            debugLog('Environment ID found:', envResult[1]);
-            break;
-        }
-    }
-
-    if (!envResult) {
-        debugLog('No environment ID found in URL');
+    if (!envId) {
         return null;
     }
 
@@ -291,7 +306,7 @@ function extractFlowDataFromTabUrl(url?: string): { envId: string; flowId: strin
     }
 
     return {
-        envId: envResult[1],
+        envId,
         flowId: flowResult[1],
     };
 }
@@ -480,33 +495,86 @@ function openFlowEditor(tab: chrome.tabs.Tab) {
         state.lastMatchedRequest.envId
     }&flowId=${state.lastMatchedRequest.flowId}`;
 
-    debugLog('Creating flow editor tab with URL:', appUrl);
-
-    chrome.tabs.create({ url: appUrl }, (appTab) => {
-        if (chrome.runtime.lastError) {
-            debugError('Failed to create flow editor tab:', chrome.runtime.lastError);
-            showNotification('Failed to open flow editor. Please try again.');
-            return;
-        }
-        state.flowEditorTabIds.add(appTab.id!);
-        editorToInitiator.set(appTab.id!, tab.id!);
-        debugLog('Flow editor tab created with ID:', appTab.id, 'for initiator tab:', tab.id,
-            '(total editor tabs:', state.flowEditorTabIds.size + ')');
-        persistState();
-    });
+    openToolkitTab(state, tab.id, appUrl, 'Failed to open flow editor. Please try again.');
 
     return { success: true };
 }
 
+// Open the environment's flow list (same page bundle as the editor, without a flowId)
+function openFlowsList(tab: chrome.tabs.Tab) {
+    if (!tab.id) {
+        debugError('No tab ID available');
+        return { success: false, error: 'No tab ID' };
+    }
+
+    const state = getOrCreateTabState(tab.id);
+
+    // Re-extract from the live tab URL so switching environments opens the right list
+    const envId = extractEnvIdFromTabUrl(tab.url) || state.lastMatchedEnvId;
+    if (envId) {
+        state.lastMatchedEnvId = envId;
+        state.initiatorTabId = tab.id;
+    }
+
+    debugLog('Opening flows list for tab:', tab.id, {
+        envId,
+        hasToken: !!state.token,
+        tokenExpired: isTokenExpired(state),
+        currentTabUrl: tab.url
+    });
+
+    if (!envId) {
+        debugError('No environment found. Make sure you are on a Power Automate page.');
+        showNotification('Please navigate to a Power Automate environment first.');
+        return { success: false, error: 'No environment found' };
+    }
+
+    if (!state.token) {
+        debugError('No authentication token found');
+        showNotification('No authentication detected. Please refresh the Power Automate page and try again.');
+        return { success: false, error: 'No authentication token' };
+    }
+
+    if (isTokenExpired(state)) {
+        debugError('Token expired, requesting refresh');
+        showNotification('Token expired. Please refresh the Power Automate page and try again.');
+        return { success: false, error: 'Token expired' };
+    }
+
+    const appUrl = `${chrome.runtime.getURL("flow-editor.html")}?envId=${envId}`;
+
+    openToolkitTab(state, tab.id, appUrl, 'Failed to open the flows list. Please try again.');
+
+    return { success: true };
+}
+
+// Create a toolkit tab and wire it to its initiator so token updates reach it
+function openToolkitTab(state: FlowEditorState, initiatorTabId: number, appUrl: string, failureMessage: string) {
+    debugLog('Creating toolkit tab with URL:', appUrl);
+
+    chrome.tabs.create({ url: appUrl }, (appTab) => {
+        if (chrome.runtime.lastError) {
+            debugError('Failed to create toolkit tab:', chrome.runtime.lastError);
+            showNotification(failureMessage);
+            return;
+        }
+        state.flowEditorTabIds.add(appTab.id!);
+        editorToInitiator.set(appTab.id!, initiatorTabId);
+        debugLog('Toolkit tab created with ID:', appTab.id, 'for initiator tab:', initiatorTabId,
+            '(total editor tabs:', state.flowEditorTabIds.size + ')');
+        persistState();
+    });
+}
+
 // Check if a tab is a flow page. Uses the provided tab if available (from sender.tab),
 // otherwise falls back to querying the active tab.
-async function checkFlowPage(senderTab?: chrome.tabs.Tab): Promise<{ isFlowPage: boolean; envId?: string; flowId?: string }> {
+async function checkFlowPage(senderTab?: chrome.tabs.Tab): Promise<{ isFlowPage: boolean; isEnvironmentPage: boolean; envId?: string; flowId?: string }> {
     const tab = senderTab || await new Promise<chrome.tabs.Tab | undefined>((resolve) => {
         chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => resolve(tabs[0]));
     });
 
     if (!tab?.id) {
-        return { isFlowPage: false };
+        return { isFlowPage: false, isEnvironmentPage: false };
     }
 
     // Always extract from the current tab URL to handle SPA navigation
@@ -516,12 +584,23 @@ async function checkFlowPage(senderTab?: chrome.tabs.Tab): Promise<{ isFlowPage:
         if (flowData) {
             const state = getOrCreateTabState(tab.id);
             state.lastMatchedRequest = flowData;
+            state.lastMatchedEnvId = flowData.envId;
             state.initiatorTabId = tab.id;
             return {
                 isFlowPage: true,
+                isEnvironmentPage: true,
                 envId: flowData.envId,
                 flowId: flowData.flowId,
             };
+        }
+
+        // No flow in the URL, but the environment alone is enough to list flows
+        const envId = extractEnvIdFromTabUrl(tab.url);
+        if (envId) {
+            const state = getOrCreateTabState(tab.id);
+            state.lastMatchedEnvId = envId;
+            state.initiatorTabId = tab.id;
+            return { isFlowPage: false, isEnvironmentPage: true, envId };
         }
     }
 
@@ -530,12 +609,16 @@ async function checkFlowPage(senderTab?: chrome.tabs.Tab): Promise<{ isFlowPage:
     if (existingState?.lastMatchedRequest) {
         return {
             isFlowPage: true,
+            isEnvironmentPage: true,
             envId: existingState.lastMatchedRequest.envId,
             flowId: existingState.lastMatchedRequest.flowId,
         };
     }
+    if (existingState?.lastMatchedEnvId) {
+        return { isFlowPage: false, isEnvironmentPage: true, envId: existingState.lastMatchedEnvId };
+    }
 
-    return { isFlowPage: false };
+    return { isFlowPage: false, isEnvironmentPage: false };
 }
 
 // Surface mode management (popup vs sidepanel)
@@ -608,8 +691,10 @@ function handleRuntimeMessage(message: any, sender: chrome.runtime.MessageSender
         }
 
         // Handle flow editor messages
-        if (message.type === 'app-loaded' || message.type === 'refresh' || message.type === 'open-flow-editor' || message.type === 'check-flow-page') {
-            if (message.type === 'open-flow-editor') {
+        if (message.type === 'app-loaded' || message.type === 'refresh' || message.type === 'open-flow-editor' || message.type === 'open-flows-list' || message.type === 'check-flow-page') {
+            if (message.type === 'open-flow-editor' || message.type === 'open-flows-list') {
+                const open = message.type === 'open-flow-editor' ? openFlowEditor : openFlowsList;
+
                 // Use sender.tab when message comes from a content script (bridge),
                 // fall back to querying the active tab (popup).
                 const getTab = sender.tab
@@ -620,7 +705,7 @@ function handleRuntimeMessage(message: any, sender: chrome.runtime.MessageSender
 
                 getTab.then((tab) => {
                     if (tab) {
-                        sendResponse(openFlowEditor(tab));
+                        sendResponse(open(tab));
                     } else {
                         sendResponse({ success: false, error: 'No active tab found' });
                     }

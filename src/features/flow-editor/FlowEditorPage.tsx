@@ -13,12 +13,14 @@ import { FlowAnalysisPanel } from './FlowAnalysisPanel';
 import { FlowComparisonPanel } from './FlowComparisonPanel';
 import { SolutionAnalysisPanel } from './SolutionAnalysisPanel';
 import { useFlowEditor } from './useFlowEditor';
+import { useResolvedTheme } from '../../theme/useResolvedTheme';
 
 const editorContainerClassName = mergeStyles({
   flex: 1,
 });
 
 export const FlowEditorPage: React.FC = () => {
+  const resolvedTheme = useResolvedTheme();
   const [editor, setEditor] = useState<monaco.editor.IStandaloneCodeEditor>(
     null as any
   );
@@ -198,6 +200,7 @@ export const FlowEditorPage: React.FC = () => {
           <Editor
             defaultValue={definition}
             language="json"
+            theme={resolvedTheme === 'dark' ? 'vs-dark' : 'vs'}
             onMount={(editor) => setEditor(editor)}
             options={{
               minimap: { enabled: false },

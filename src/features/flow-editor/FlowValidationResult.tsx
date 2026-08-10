@@ -30,7 +30,8 @@ const cardStyles = mergeStyles({
   padding: '16px',
   borderRadius: '8px',
   boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-  backgroundColor: '#fff',
+  backgroundColor: 'var(--color-bg-card)',
+  color: 'var(--color-fg)',
   marginBottom: '12px',
 });
 
@@ -102,7 +103,7 @@ export const FlowValidationResult: React.FC<FlowValidationResultProps> = ({
         isResizable: true,
         onRender: (item: FlowError) => (
           <Text
-            styles={{ root: { cursor: 'pointer', color: '#0078d4' } }}
+            styles={{ root: { cursor: 'pointer', color: 'var(--color-brand)' } }}
             onClick={() => navigator.clipboard.writeText(item.fixInstructions.markdownText)}
             title="Click to copy"
           >
@@ -158,7 +159,7 @@ export const FlowValidationResult: React.FC<FlowValidationResultProps> = ({
         minWidth: 80,
         maxWidth: 100,
         onRender: (item: ValidationIssue) => (
-          <Text styles={{ root: { color: '#605e5c', fontSize: 12 } }}>{item.keyword}</Text>
+          <Text styles={{ root: { color: 'var(--color-fg-secondary)', fontSize: 12 } }}>{item.keyword}</Text>
         ),
       },
     ],

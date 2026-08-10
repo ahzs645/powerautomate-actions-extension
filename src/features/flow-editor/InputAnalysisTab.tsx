@@ -32,15 +32,15 @@ const cardStyles = mergeStyles({
   padding: '16px',
   borderRadius: '8px',
   boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-  backgroundColor: '#fff',
+  backgroundColor: 'var(--color-bg-card)',
   marginBottom: '12px',
 });
 
 const secureCardStyles = mergeStyles({
   padding: '12px 16px',
   borderRadius: '8px',
-  backgroundColor: '#f0f6ff',
-  borderLeft: '4px solid #0078d4',
+  backgroundColor: 'var(--color-info-bg)',
+  borderLeft: '4px solid var(--color-brand)',
   marginBottom: '12px',
 });
 
@@ -147,7 +147,7 @@ export const InputAnalysisTab: React.FC<InputAnalysisTabProps> = ({
             iconName={item.hasSecureInputs ? 'Lock' : ''}
             styles={{
               root: {
-                color: item.hasSecureInputs ? '#0078d4' : 'transparent',
+                color: item.hasSecureInputs ? 'var(--color-brand)' : 'transparent',
                 fontSize: 16,
               },
             }}
@@ -164,7 +164,7 @@ export const InputAnalysisTab: React.FC<InputAnalysisTabProps> = ({
             iconName={item.hasEnvironmentVars ? 'Variable' : ''}
             styles={{
               root: {
-                color: item.hasEnvironmentVars ? '#8764b8' : 'transparent',
+                color: item.hasEnvironmentVars ? 'var(--color-accent)' : 'transparent',
                 fontSize: 16,
               },
             }}
@@ -208,13 +208,13 @@ export const InputAnalysisTab: React.FC<InputAnalysisTabProps> = ({
             <Text variant="small">Total Actions</Text>
           </Stack>
           <Stack>
-            <Text variant="xLarge" styles={{ root: { fontWeight: 700, color: '#0078d4' } }}>
+            <Text variant="xLarge" styles={{ root: { fontWeight: 700, color: 'var(--color-brand)' } }}>
               {secureCount}
             </Text>
             <Text variant="small">Secure Inputs</Text>
           </Stack>
           <Stack>
-            <Text variant="xLarge" styles={{ root: { fontWeight: 700, color: '#8764b8' } }}>
+            <Text variant="xLarge" styles={{ root: { fontWeight: 700, color: 'var(--color-accent)' } }}>
               {envVarCount}
             </Text>
             <Text variant="small">Use Env Variables</Text>
@@ -226,7 +226,7 @@ export const InputAnalysisTab: React.FC<InputAnalysisTabProps> = ({
       {secureCount > 0 && (
         <div className={secureCardStyles}>
           <Stack horizontal tokens={{ childrenGap: 8 }} verticalAlign="center">
-            <Icon iconName="Lock" styles={{ root: { color: '#0078d4', fontSize: 20 } }} />
+            <Icon iconName="Lock" styles={{ root: { color: 'var(--color-brand)', fontSize: 20 } }} />
             <Text>
               <strong>{secureCount} action(s)</strong> have secure inputs enabled. Input values are
               hidden in run history for these actions.
@@ -237,9 +237,9 @@ export const InputAnalysisTab: React.FC<InputAnalysisTabProps> = ({
 
       {/* Environment Variables Info */}
       {envVarCount > 0 && (
-        <div className={cardStyles} style={{ backgroundColor: '#f5f0ff', borderLeft: '4px solid #8764b8' }}>
+        <div className={cardStyles} style={{ backgroundColor: 'var(--color-accent-bg)', borderLeft: '4px solid var(--color-accent)' }}>
           <Stack horizontal tokens={{ childrenGap: 8 }} verticalAlign="center">
-            <Icon iconName="Variable" styles={{ root: { color: '#8764b8', fontSize: 20 } }} />
+            <Icon iconName="Variable" styles={{ root: { color: 'var(--color-accent)', fontSize: 20 } }} />
             <Text>
               <strong>{envVarCount} action(s)</strong> reference environment variables using
               @parameters(). These values are configured at the solution level.
@@ -257,7 +257,7 @@ export const InputAnalysisTab: React.FC<InputAnalysisTabProps> = ({
           styles={{ root: { width: 250 } }}
         />
         <Text
-          styles={{ root: { color: '#0078d4', cursor: 'pointer' } }}
+          styles={{ root: { color: 'var(--color-brand)', cursor: 'pointer' } }}
           onClick={() =>
             onExportCsv(
               filteredInputs.map((i) => ({
@@ -318,13 +318,13 @@ export const InputAnalysisTab: React.FC<InputAnalysisTabProps> = ({
               </Text>
               {selectedInput.hasSecureInputs && (
                 <Stack horizontal tokens={{ childrenGap: 4 }} verticalAlign="center">
-                  <Icon iconName="Lock" styles={{ root: { color: '#0078d4' } }} />
+                  <Icon iconName="Lock" styles={{ root: { color: 'var(--color-brand)' } }} />
                   <Text>Secure Inputs</Text>
                 </Stack>
               )}
               {selectedInput.hasEnvironmentVars && (
                 <Stack horizontal tokens={{ childrenGap: 4 }} verticalAlign="center">
-                  <Icon iconName="Variable" styles={{ root: { color: '#8764b8' } }} />
+                  <Icon iconName="Variable" styles={{ root: { color: 'var(--color-accent)' } }} />
                   <Text>Environment Variables</Text>
                 </Stack>
               )}
@@ -335,7 +335,7 @@ export const InputAnalysisTab: React.FC<InputAnalysisTabProps> = ({
             </Text>
             <pre
               style={{
-                backgroundColor: '#f3f2f1',
+                backgroundColor: 'var(--color-bg-subtle)',
                 padding: 16,
                 borderRadius: 4,
                 overflow: 'auto',

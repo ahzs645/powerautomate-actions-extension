@@ -30,8 +30,14 @@ export class SchemaValidator {
       strict: false,
     });
 
-    // Compile the schema
-    this.validate = this.ajv.compile(workflowSchema);
+    // workflowdefinition.json advertises JSON Schema draft-04, whose meta-schema
+    // Ajv 8 does not ship. Compiling it as-is throws `no schema with key or ref
+    // "http://json-schema.org/draft-04/schema#"`, which the caller reported as
+    // "Invalid JSON" on every single validation. The schema uses no draft-04-only
+    // keywords (no boolean exclusiveMinimum/Maximum, no bare `id`), so dropping the
+    // declaration lets Ajv apply its default draft-07 semantics with the same result.
+    const { $schema, ...draft07Compatible } = workflowSchema as Record<string, unknown>;
+    this.validate = this.ajv.compile(draft07Compatible);
   }
 
   /**
@@ -290,7 +296,7 @@ export class SchemaValidator {
    * Get color for issue severity
    */
   static getSeverityColor(severity: 'error' | 'warning'): string {
-    return severity === 'error' ? '#d13438' : '#ff8c00';
+    return severity === 'error' ? 'var(--color-danger)' : 'var(--color-warning)';
   }
 }
 

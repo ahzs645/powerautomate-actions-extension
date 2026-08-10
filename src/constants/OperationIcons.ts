@@ -6,13 +6,13 @@
 // taken from the same payload. Connector actions (Office 365, Excel, ...) carry
 // their own iconUri in the flow's connectionReferences and do not use this table.
 //
-// Operations whose manifests are not covered here (Scope, Foreach, Until, Switch)
-// fall back to a brand-coloured tile with the type's initials. Those four are not
-// missing by oversight: operation manifests load on demand, and the page that was
-// captured never used them. To add them, capture a designer session that does and
-// re-run scripts/extract-operation-icons.js.
+// Operation types absent from this table fall back to a brand-coloured tile with
+// the type's initials.
 //
-// See docs/operation-icons.md for the full procedure and the provenance note.
+// Note that most glyphs in a capture are NOT reachable by grepping for
+// `iconUri: "data:` - the classic designer references them through alias modules,
+// so a literal search finds 9 of 106. See docs/operation-icons.md before concluding
+// an icon is unavailable.
 
 export interface OperationIcon {
   iconUri: string;
@@ -68,6 +68,34 @@ const TERMINATE: OperationIcon = {
   brandColor: '#F41700',
 };
 
+/** Scope */
+const SCOPE: OperationIcon = {
+  iconUri:
+    'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIiIGhlaWdodD0iMzIiIHZlcnNpb249IjEuMSIgdmlld0JveD0iMCAwIDMyIDMyIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPg0KIDxwYXRoIGQ9Im0wIDBoMzJ2MzJoLTMyeiIgZmlsbD0iIzhDMzkwMCIvPg0KIDxwYXRoIGQ9Im04IDEwaDE2djEyaC0xNnptMTUgMTF2LTEwaC0xNHYxMHptLTItOHY2aC0xMHYtNnptLTEgNXYtNGgtOHY0eiIgZmlsbD0iI2ZmZiIvPg0KPC9zdmc+DQo=',
+  brandColor: '#8C3900',
+};
+
+/** Apply to each */
+const FOREACH: OperationIcon = {
+  iconUri:
+    'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIiIGhlaWdodD0iMzIiIHZlcnNpb249IjEuMSIgdmlld0JveD0iMCAwIDMyIDMyIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPg0KIDxwYXRoIGQ9Im0wIDBoMzJ2MzJoLTMyeiIgZmlsbD0iIzQ4Njk5MSIvPg0KIDxwYXRoIGQ9Ik0xMSAyMGg3LjJsMSAxaC05LjJ2LTguM2wtMS4zIDEuMy0uNy0uNyAyLjUtMi41IDIuNSAyLjUtLjcuNy0xLjMtMS4zem0xMi4zLTJsLjcuNy0yLjUgMi41LTIuNS0yLjUuNy0uNyAxLjMgMS4zdi03LjNoLTcuMmwtMS0xaDkuMnY4LjN6IiBmaWxsPSIjZmZmIi8+DQo8L3N2Zz4NCg==',
+  brandColor: '#486991',
+};
+
+/** Do until */
+const UNTIL: OperationIcon = {
+  iconUri:
+    'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIiIGhlaWdodD0iMzIiIHZlcnNpb249IjEuMSIgdmlld0JveD0iMCAwIDMyIDMyIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPg0KIDxwYXRoIGQ9Im0wIDBoMzJ2MzJoLTMyeiIgZmlsbD0iIzQ4Njk5MSIvPg0KIDxnIGZpbGw9IiNmZmYiPg0KICA8cGF0aCBkPSJNMTEuNDI5IDIwLjMxaDEyLjU3MXYxLjE0M2gtMTMuNzE0di0zLjU0M2wtMS40ODYgMS40ODYtLjgtLjggMi44NTctMi44NTcgMi44NTcgMi44NTctLjguOC0xLjQ4Ni0xLjQ4NnoiLz4NCiAgPHBhdGggZD0iTTIyLjg1NyAyMS4zNjh2LTkuODM2aC04di0uOTg0aDkuMTQzdjEwLjgyIi8+DQogIDxwYXRoIGQ9Im05LjE0MyAxMC41NDhoMy40Mjl2My40MjloLTMuNDI5eiIvPg0KIDwvZz4NCjwvc3ZnPg0K',
+  brandColor: '#486991',
+};
+
+/** Switch */
+const SWITCH: OperationIcon = {
+  iconUri:
+    'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIiIGhlaWdodD0iMzIiIHZlcnNpb249IjEuMSIgdmlld0JveD0iMCAwIDMyIDMyIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPg0KIDxwYXRoIGQ9Im0wIDBoMzJ2MzJoLTMyeiIgZmlsbD0iIzQ4NEY1OCIvPg0KIDxnIGZpbGw9IiNmZmYiPg0KICA8cGF0aCBkPSJtMjUuNiAxOS42di03LjJoLTE5LjJ2Ny4yem0tMS4yLTEuMmgtMTYuODAxdi00LjhoMTYuOHY0Ljh6Ii8+DQogIDxwYXRoIGQ9Ik0xMS44IDE3LjJ2LTEuMmgtLjZ2LTEuMmgtMS4ydjEuMmgtLjZ2MS4yeiIvPg0KICA8cGF0aCBkPSJNMTUuNCAxNy4ydi0xLjJoLS42di0xLjJoLTEuMnYxLjJoLS42djEuMnoiLz4NCiAgPHBhdGggZD0iTTE5IDE3LjJ2LTEuMmgtLjZ2LTEuMmgtMS4ydjEuMmgtLjZ2MS4yeiIvPg0KICA8cGF0aCBkPSJNMjIuNiAxNy4ydi0xLjJoLS42di0xLjJoLTEuMnYxLjJoLS42djEuMnoiLz4NCiA8L2c+DQo8L3N2Zz4NCg==',
+  brandColor: '#484F58',
+};
+
 /** Action `type` values in a flow definition, mapped to their designer icon. */
 const BY_TYPE: Record<string, OperationIcon> = {
   InitializeVariable: VARIABLE,
@@ -78,6 +106,11 @@ const BY_TYPE: Record<string, OperationIcon> = {
   AppendToStringVariable: VARIABLE,
 
   If: CONTROL,
+  Switch: SWITCH,
+  Scope: SCOPE,
+  Foreach: FOREACH,
+  Until: UNTIL,
+  Do_until: UNTIL,
 
   Compose: DATA_OPERATION,
   ParseJson: DATA_OPERATION,
@@ -93,7 +126,9 @@ const BY_TYPE: Record<string, OperationIcon> = {
   ApiConnectionWebhook: HTTP,
 
   Request: REQUEST,
-  Response: REQUEST,
+  // Same glyph, different brand colour: #007C89 is the "When a HTTP request is
+  // received" trigger's own override, while the Response group is #009DA5.
+  Response: { iconUri: REQUEST.iconUri, brandColor: '#009DA5' },
 
   Terminate: TERMINATE,
 };

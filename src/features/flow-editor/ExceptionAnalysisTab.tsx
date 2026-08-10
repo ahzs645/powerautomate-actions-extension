@@ -25,7 +25,7 @@ const cardStyles = mergeStyles({
   padding: '16px',
   borderRadius: '8px',
   boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-  backgroundColor: '#fff',
+  backgroundColor: 'var(--color-bg-card)',
   marginBottom: '12px',
 });
 
@@ -43,7 +43,7 @@ const statusIconStyles = (passed: boolean) =>
   mergeStyles({
     fontSize: 20,
     marginRight: 8,
-    color: passed ? '#107c10' : '#d13438',
+    color: passed ? 'var(--color-success)' : 'var(--color-danger)',
   });
 
 export const ExceptionAnalysisTab: React.FC<ExceptionAnalysisTabProps> = ({
@@ -117,10 +117,10 @@ export const ExceptionAnalysisTab: React.FC<ExceptionAnalysisTabProps> = ({
               root: {
                 color:
                   item.type === 'main'
-                    ? '#107c10'
+                    ? 'var(--color-success)'
                     : item.type === 'exception' || item.type === 'catch'
-                    ? '#ff8c00'
-                    : '#323130',
+                    ? 'var(--color-warning)'
+                    : 'var(--color-fg)',
                 fontWeight: item.type !== 'regular' ? 600 : 400,
               },
             }}
@@ -138,7 +138,7 @@ export const ExceptionAnalysisTab: React.FC<ExceptionAnalysisTabProps> = ({
           <Icon
             iconName={item.hasRunAfterFailed ? 'CheckMark' : 'Cancel'}
             styles={{
-              root: { color: item.hasRunAfterFailed ? '#107c10' : '#a19f9d' },
+              root: { color: item.hasRunAfterFailed ? 'var(--color-success)' : 'var(--color-fg-muted)' },
             }}
           />
         ),
@@ -152,7 +152,7 @@ export const ExceptionAnalysisTab: React.FC<ExceptionAnalysisTabProps> = ({
           <Icon
             iconName={item.containsTerminate ? 'CheckMark' : 'Cancel'}
             styles={{
-              root: { color: item.containsTerminate ? '#107c10' : '#a19f9d' },
+              root: { color: item.containsTerminate ? 'var(--color-success)' : 'var(--color-fg-muted)' },
             }}
           />
         ),
@@ -241,7 +241,7 @@ export const ExceptionAnalysisTab: React.FC<ExceptionAnalysisTabProps> = ({
             </Text>
           </Stack>
           <Stack horizontal verticalAlign="center">
-            <Icon iconName="Info" styles={{ root: { fontSize: 20, marginRight: 8, color: '#0078d4' } }} />
+            <Icon iconName="Info" styles={{ root: { fontSize: 20, marginRight: 8, color: 'var(--color-brand)' } }} />
             <Text>Exception Handlers: {exceptionResult.exceptionHandlerCount}</Text>
           </Stack>
         </Stack>
@@ -307,7 +307,7 @@ export const ExceptionAnalysisTab: React.FC<ExceptionAnalysisTabProps> = ({
             compact
           />
         ) : (
-          <Text styles={{ root: { color: '#107c10' } }}>
+          <Text styles={{ root: { color: 'var(--color-success)' } }}>
             No issues found. Exception handling looks good!
           </Text>
         )}

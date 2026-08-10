@@ -5,7 +5,9 @@ import { mergeStyles } from '@fluentui/react/lib/Styling';
 const navBarStyles = mergeStyles({
   height: 48,
   lineHeight: '48px',
-  backgroundColor: '#F1F1F1',
+  backgroundColor: 'var(--color-bg-subtle)',
+  color: 'var(--color-fg)',
+  borderBottom: '1px solid var(--color-stroke)',
 });
 
 const appTitleStyles = mergeStyles({

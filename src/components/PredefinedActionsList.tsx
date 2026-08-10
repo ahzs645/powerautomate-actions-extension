@@ -68,7 +68,7 @@ const PredefinedActionsList: React.FC<IPredefinedActionsListProps> = (props) => 
                     <div style={{ marginBottom: '15px' }}>
                         <strong>URL:</strong>
                         <div style={{ 
-                            backgroundColor: '#f5f5f5', 
+                            backgroundColor: 'var(--color-bg-subtle)', 
                             padding: '8px', 
                             marginTop: '5px', 
                             borderRadius: '4px',
@@ -83,7 +83,7 @@ const PredefinedActionsList: React.FC<IPredefinedActionsListProps> = (props) => 
                     <div style={{ marginBottom: '15px' }}>
                         <strong>Method:</strong>
                         <div style={{ 
-                            backgroundColor: '#f5f5f5', 
+                            backgroundColor: 'var(--color-bg-subtle)', 
                             padding: '8px', 
                             marginTop: '5px', 
                             borderRadius: '4px',
@@ -98,7 +98,7 @@ const PredefinedActionsList: React.FC<IPredefinedActionsListProps> = (props) => 
                         <div style={{ marginBottom: '15px' }}>
                             <strong>Headers:</strong>
                             <div style={{ 
-                                backgroundColor: '#f5f5f5', 
+                                backgroundColor: 'var(--color-bg-subtle)', 
                                 padding: '8px', 
                                 marginTop: '5px', 
                                 borderRadius: '4px',
@@ -115,7 +115,7 @@ const PredefinedActionsList: React.FC<IPredefinedActionsListProps> = (props) => 
                         <div style={{ marginBottom: '15px' }}>
                             <strong>Body:</strong>
                             <div style={{ 
-                                backgroundColor: '#f5f5f5', 
+                                backgroundColor: 'var(--color-bg-subtle)', 
                                 padding: '8px', 
                                 marginTop: '5px', 
                                 borderRadius: '4px',
@@ -133,7 +133,7 @@ const PredefinedActionsList: React.FC<IPredefinedActionsListProps> = (props) => 
                     <div style={{ marginBottom: '15px' }}>
                         <strong>Raw Action JSON:</strong>
                         <div style={{ 
-                            backgroundColor: '#f5f5f5', 
+                            backgroundColor: 'var(--color-bg-subtle)', 
                             padding: '8px', 
                             marginTop: '5px', 
                             borderRadius: '4px',
@@ -172,7 +172,7 @@ const PredefinedActionsList: React.FC<IPredefinedActionsListProps> = (props) => 
                         <Icon
                             iconName='Warning'
                             title={action.warning}
-                            style={{ color: '#a80000', marginLeft: '6px', verticalAlign: 'middle' }}
+                            style={{ color: 'var(--color-danger)', marginLeft: '6px', verticalAlign: 'middle' }}
                         />
                     )}
                 </span>
@@ -266,7 +266,7 @@ const PredefinedActionsList: React.FC<IPredefinedActionsListProps> = (props) => 
 
     const renderSearch = useCallback(() => {
         return (
-            <div style={{ padding: '10px 20px', backgroundColor: '#f3f2f1', display: 'flex', gap: '10px', alignItems: 'center' }}>
+            <div style={{ padding: '10px 20px', backgroundColor: 'var(--color-bg-subtle)', display: 'flex', gap: '10px', alignItems: 'center' }}>
                 <TextField
                     placeholder="Search by title or description..."
                     value={props.searchTerm}
@@ -289,7 +289,7 @@ const PredefinedActionsList: React.FC<IPredefinedActionsListProps> = (props) => 
                         iconName="Refresh"
                         onClick={props.onRefresh}
                         title="Refresh predefined actions"
-                        style={{ cursor: 'pointer', fontSize: '16px', color: '#107c10' }}
+                        style={{ cursor: 'pointer', fontSize: '16px', color: 'var(--color-success)' }}
                     />
                 )}
             </div>
@@ -318,7 +318,7 @@ const PredefinedActionsList: React.FC<IPredefinedActionsListProps> = (props) => 
             )}
             <div className="App-Actions">
                 {filteredActions.length === 0 ? (
-                    <div style={{ padding: '20px', textAlign: 'center', color: '#605e5c' }}>
+                    <div style={{ padding: '20px', textAlign: 'center', color: 'var(--color-fg-secondary)' }}>
                         <Icon iconName="Info" style={{ fontSize: '24px', marginBottom: '10px' }} />
                         <div>No predefined actions available</div>
                     </div>
@@ -327,14 +327,14 @@ const PredefinedActionsList: React.FC<IPredefinedActionsListProps> = (props) => 
                         <div key={group.category}>
                             <div style={{
                                 padding: '6px 20px',
-                                backgroundColor: '#faf9f8',
+                                backgroundColor: 'var(--color-bg-subtle)',
                                 borderTop: '1px solid #edebe9',
                                 borderBottom: '1px solid #edebe9',
                                 fontSize: '11px',
                                 fontWeight: 600,
                                 textTransform: 'uppercase',
                                 letterSpacing: '0.4px',
-                                color: '#605e5c',
+                                color: 'var(--color-fg-secondary)',
                             }}>
                                 {group.category}
                             </div>

@@ -6,6 +6,7 @@ import { mergeStyles } from '@fluentui/react/lib/Styling';
 import { MessageBar, MessageBarType } from '@fluentui/react/lib/MessageBar';
 import { FlowAction, FlowTrigger } from '../../services/FlowAnalyzer';
 import { buildDiagram, renderDiagramSvg, inlineDiagramImages } from './FlowDiagram';
+import { useResolvedTheme } from '../../theme/useResolvedTheme';
 import { findActionRange, JsonRange } from './flowJsonLocator';
 
 export interface FlowDiagramTabProps {
@@ -31,9 +32,9 @@ const layoutStyles = mergeStyles({ display: 'flex', gap: '12px', alignItems: 'st
 const canvasStyles = mergeStyles({
   flex: '1 1 auto',
   minWidth: 0,
-  border: '1px solid #edebe9',
+  border: '1px solid var(--color-stroke)',
   borderRadius: '4px',
-  backgroundColor: '#fff',
+  backgroundColor: 'var(--color-bg-card)',
   overflow: 'auto',
   minHeight: '420px',
   maxHeight: '620px',
@@ -43,9 +44,9 @@ const canvasStyles = mergeStyles({
 
 const sidebarStyles = mergeStyles({
   flex: '0 0 320px',
-  border: '1px solid #edebe9',
+  border: '1px solid var(--color-stroke)',
   borderRadius: '4px',
-  backgroundColor: '#fff',
+  backgroundColor: 'var(--color-bg-card)',
   padding: '12px',
   overflow: 'auto',
   minHeight: '420px',
@@ -56,8 +57,8 @@ const codeStyles = mergeStyles({
   fontFamily: 'Consolas, Monaco, "Courier New", monospace',
   fontSize: '11px',
   lineHeight: 1.5,
-  backgroundColor: '#faf9f8',
-  border: '1px solid #edebe9',
+  backgroundColor: 'var(--color-bg-subtle)',
+  border: '1px solid var(--color-stroke)',
   borderRadius: '2px',
   padding: '8px',
   margin: 0,
@@ -68,7 +69,7 @@ const codeStyles = mergeStyles({
 
 const fieldLabelStyles = mergeStyles({
   fontSize: '11px',
-  color: '#605e5c',
+  color: 'var(--color-fg-secondary)',
   textTransform: 'uppercase',
   letterSpacing: '0.4px',
   marginBottom: '2px',
@@ -76,7 +77,7 @@ const fieldLabelStyles = mergeStyles({
 
 const fieldValueStyles = mergeStyles({
   fontSize: '13px',
-  color: '#323130',
+  color: 'var(--color-fg)',
   wordBreak: 'break-word',
   marginBottom: '10px',
 });
@@ -91,6 +92,7 @@ export const FlowDiagramTab: React.FC<FlowDiagramTabProps> = ({
   searchText,
   onRevealRange,
 }) => {
+  const resolvedTheme = useResolvedTheme();
   const [zoom, setZoom] = useState(1);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [copied, setCopied] = useState(false);
@@ -123,8 +125,15 @@ export const FlowDiagramTab: React.FC<FlowDiagramTabProps> = ({
   // On screen the diagram is interactive and keeps the designer's insert
   // affordance; the export drops both so the file is clean, static artwork.
   const interactiveSvg = useMemo(
-    () => (diagram ? renderDiagramSvg(diagram, { interactive: true, showInsertMarkers: true }) : ''),
-    [diagram]
+    () =>
+      diagram
+        ? renderDiagramSvg(diagram, {
+            interactive: true,
+            showInsertMarkers: true,
+            theme: resolvedTheme,
+          })
+        : '',
+    [diagram, resolvedTheme]
   );
 
   useEffect(() => {
@@ -341,7 +350,7 @@ export const FlowDiagramTab: React.FC<FlowDiagramTabProps> = ({
             onClick={() => setCollapsed(allCollapsed ? new Set() : new Set(containers))}
           />
         )}
-        <Text variant="small" styles={{ root: { color: '#605e5c' } }}>
+        <Text variant="small" styles={{ root: { color: 'var(--color-fg-secondary)' } }}>
           {Math.round(zoom * 100)}%
         </Text>
       </Stack>
@@ -388,7 +397,7 @@ export const FlowDiagramTab: React.FC<FlowDiagramTabProps> = ({
               <>
                 <Text
                   variant="small"
-                  styles={{ root: { color: '#605e5c', display: 'block', marginBottom: 4 } }}
+                  styles={{ root: { color: 'var(--color-fg-secondary)', display: 'block', marginBottom: 4 } }}
                 >
                   Lines {selectedRange.startLine}–{selectedRange.endLine}
                 </Text>
@@ -419,7 +428,7 @@ export const FlowDiagramTab: React.FC<FlowDiagramTabProps> = ({
         )}
       </div>
 
-      <Text variant="small" styles={{ root: { color: '#605e5c' } }}>
+      <Text variant="small" styles={{ root: { color: 'var(--color-fg-secondary)' } }}>
         Click a card to inspect it, the chevron on a scope to collapse it, or drag to pan.
         Dashed connectors run after something other than plain success; the dots above a card
         show which statuses: green succeeded, red failed, orange timed out, grey skipped.

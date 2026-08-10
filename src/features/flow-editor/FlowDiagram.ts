@@ -56,7 +56,13 @@ const DOT_OFFSET = 12; // above the card top
 
 const CANVAS_PAD = 36;
 
-const COLORS = {
+export type DiagramTheme = 'light' | 'dark';
+
+/**
+ * Concrete hex values rather than CSS variables: the diagram is also exported as a
+ * standalone .svg file, where `var(--token)` would have nothing to resolve against.
+ */
+const LIGHT_COLORS = {
   canvas: '#ffffff',
   grid: '#e1dfdd',
   card: '#ffffff',
@@ -76,6 +82,30 @@ const COLORS = {
   pillNeutral: '#605e5c',
 };
 
+const DARK_COLORS: typeof LIGHT_COLORS = {
+  canvas: '#1b1b1f',
+  grid: '#3a3a42',
+  card: '#2b2b2f',
+  cardBorder: '#4a4a52',
+  title: '#e8e8ed',
+  edge: '#8a8a94',
+  containerHeader: '#3a3a42',
+  containerHeaderText: '#ffffff',
+  containerFill: '#242428',
+  containerBorder: '#4a4a52',
+  branchFill: '#2b2b2f',
+  branchBorder: '#4a4a52',
+  emptyText: '#7a7a82',
+  plus: '#479ef5',
+  pillTrue: '#2f8f2f',
+  pillFalse: '#c25055',
+  pillNeutral: '#6a6a72',
+};
+
+// Swapped per render rather than threaded through 25 call sites. Rendering is
+// synchronous, so the active palette cannot change mid-render.
+let COLORS = LIGHT_COLORS;
+
 const STATUS_COLORS: Record<string, string> = {
   Succeeded: '#107c10',
   Failed: '#a4262c',
@@ -84,18 +114,12 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 /**
- * Accent colours for operations the designer manifests in the capture did not
- * cover. Everything else takes its colour from getOperationIcon(), which carries
- * the designer's own brandColor.
+ * Accent colours for the few operation types with no entry in the icon table.
+ * Values come from the designer's own `brandColors` constant map, not from eyeballing.
  */
 const TYPE_COLORS: Record<string, string> = {
-  Switch: '#484F58',
-  Scope: '#484F58',
-  Foreach: '#484F58',
-  Until: '#484F58',
-  Do_until: '#484F58',
-  Expression: '#8C6CFF',
-  Filter: '#8C6CFF',
+  Expression: '#8C6CFF', // DATA
+  Filter: '#8C6CFF', // DATA
 };
 
 const DEFAULT_ACCENT = '#486991';
@@ -983,10 +1007,13 @@ export interface RenderOptions {
   interactive?: boolean;
   /** The designer's "+" insert affordance. Pure decoration here, so exports omit it. */
   showInsertMarkers?: boolean;
+  /** Defaults to light so exported SVGs stay printable unless asked otherwise. */
+  theme?: DiagramTheme;
 }
 
 export function renderDiagramSvg(diagram: Diagram, options: RenderOptions = {}): string {
-  const { interactive = false, showInsertMarkers = false } = options;
+  const { interactive = false, showInsertMarkers = false, theme = 'light' } = options;
+  COLORS = theme === 'dark' ? DARK_COLORS : LIGHT_COLORS;
   const { nodes, edges, frames, width, height } = diagram;
   const parts: string[] = [];
 
@@ -1120,7 +1147,7 @@ function chevron(x: number, y: number, color: string, dir: 'up' | 'down' = 'down
 /** The designer's insert affordance. Decorative here - the diagram is read-only. */
 function plusMarker(x: number, y: number): string {
   return (
-    `<g><circle cx="${round(x)}" cy="${round(y)}" r="${PLUS_R}" fill="#ffffff" ` +
+    `<g><circle cx="${round(x)}" cy="${round(y)}" r="${PLUS_R}" fill="${COLORS.card}" ` +
     `stroke="${COLORS.plus}" stroke-width="1.1"/>` +
     `<path d="M ${round(x - 4)} ${round(y)} H ${round(x + 4)} M ${round(x)} ${round(y - 4)} ` +
     `V ${round(y + 4)}" stroke="${COLORS.plus}" stroke-width="1.3" stroke-linecap="round"/></g>`

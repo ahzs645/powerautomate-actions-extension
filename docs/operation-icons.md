@@ -62,7 +62,7 @@ operations share the variables glyph).
 
 ## What is currently covered
 
-Seven entries in `OperationIcons.ts`, mapped onto flow `type` values:
+Eleven entries in `OperationIcons.ts`, mapped onto flow `type` values:
 
 | Icon | Brand | Covers |
 | --- | --- | --- |
@@ -71,45 +71,78 @@ Seven entries in `OperationIcons.ts`, mapped onto flow `type` values:
 | Data operations `{∇}` | `#8C6CFF` | `Compose`, `ParseJson`, `Select`, `Join`, `Table`, `Query` |
 | Schedule | `#1F85FF` | `Wait` |
 | HTTP | `#709727` | `Http`, `HttpWebhook`, `ApiConnectionWebhook` |
-| Request | `#007C89` | `Request`, `Response` |
+| Request | `#007C89` | `Request` (the trigger's own override) |
+| Request glyph, Response colour | `#009DA5` | `Response` |
 | Terminate | `#F41700` | `Terminate` |
+| Scope | `#8C3900` | `Scope` |
+| Loop | `#486991` | `Foreach`, `Until`, `Do_until` |
+| Switch | `#484F58` | `Switch` |
 
 The brand colours are the designer's own values, taken from the same manifests. They
 replaced hand-guessed approximations that were wrong for Control (`#484644`),
 Terminate (`#a4262c`), Request (`#709727`) and Schedule (`#486991`).
 
-## What is still missing
+## The alias trap
 
-**`Scope`, `Foreach`, `Until` and `Switch` have no icon.**
+`grep 'iconUri: "data:'` finds **9** icons in this capture. There are **106**.
 
-They are not in the capture. Operation manifests are fetched **on demand**, so a
-capture only contains what the captured page actually rendered — and the flow open at
-capture time used none of those four. This was confirmed by scanning every `.js` file
-in the full 96 MB capture, not just the one designer chunk, so it is an absence in the
-capture rather than a gap in the search.
+Two manifest shapes exist:
 
-These four fall back to a control-grey (`#484F58`) tile with the type's initials —
-`SC`, `FE`, `UN`, `SW`. That degrades cleanly: the card still reads correctly, it just
-carries letters instead of a glyph.
+```js
+// newer designer - the URI is inline
+iconUri: "data:image/svg+xml;base64,...", brandColor: "#484F58",
 
-### Filling the gap
+// classic designer - the URI is an alias
+iconUri: y.default          // y is its own module: t.default = "data:image/svg+xml;..."
+```
 
-1. Open a flow in the Power Automate designer that uses a Scope, an Apply to each, a
-   Do until and a Switch. Expand each one so its manifest is fetched.
-2. Save the page (a full "Save page as" mirror, including the `content.powerapps.com`
-   bundles).
-3. Run the extraction script against the new capture. It reports
-   `not in this capture: ...` for whichever of the four are still absent, and confirms
-   when all are present.
-4. Generate the contact sheet, identify the new glyphs by eye, and add them to
-   `OperationIcons.ts` — a `const` per icon plus entries in `BY_TYPE`.
-5. Drop the corresponding entries from `TYPE_COLORS` in
-   `src/features/flow-editor/FlowDiagram.ts`, which exists only to colour the types
-   the icon table does not cover.
+Every glyph in the classic designer is an anonymous webpack module whose entire body
+is the data URI, referenced only through a minified alias. A literal grep returns zero
+hits against that bundle even though every icon is present.
 
-`src/tests/services/FlowDiagram.test.ts` has an `operation icons` block asserting the
-precedence rules and the initials fallback; update the fallback test when a type stops
-falling back.
+This produced a confident and wrong conclusion once: that `Scope`, `Foreach`, `Until`
+and `Switch` were absent from the capture and would need a re-capture to obtain. They
+were there the whole time. The scan had covered every `.js` file — the coverage claim
+was true — but it was matching a pattern that structurally could not see them. Breadth
+of search does not rescue the wrong pattern.
+
+`scripts/extract-operation-icons.js` now reports both shapes and says how many icons it
+found but cannot name. Naming an alias icon means resolving it through the webpack
+dependency graph, or — far cheaper — generating the contact sheet and identifying the
+glyphs by eye.
+
+## Distinguishing the two kinds of "missing"
+
+When an icon is not where you expect, separate these before acting:
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| No manifest names it | Referenced by alias | Contact sheet, identify by eye |
+| The chunk itself is absent | Never fetched by the captured page | Re-capture with that UI exercised |
+
+`jsmap coverage <capture>` answers the second. Only that one needs a re-capture. The
+extraction script no longer conflates them: it says "not named by any manifest here"
+rather than implying absence.
+
+## Brand colours have their own source
+
+Colours do not depend on the icon manifests at all. The classic designer bundle carries
+a named `brandColors` constant map covering the whole palette:
+
+```
+core.all.min.js → t.brandColors = {
+  CONDITION: "#484F58",  CONTROL: "#8C3900",  DATA: "#8C6CFF",
+  DATE_TIME: "#1F85FF",  HTTP:    "#709727",  LOOP: "#486991",
+  RESPONSE:  "#009DA5",  SCOPE:   "#8C3900",  TERMINATE: "#F41700",
+  VARIABLE:  "#770BD6",  WAIT:    "#1F85FF",  BUILT_IN: "#4D4F4F", ... }
+```
+
+Search this before hand-picking anything. It is also independently checkable: each
+icon's own background fill equals its declared brand colour, so a value confirmed by
+the constant map, a manifest, and the artwork is not a transcription error.
+
+Note `Response` (`#009DA5`) differs from the "When a HTTP request is received" trigger
+(`#007C89`), which overrides it. They share a glyph but not a colour.
 
 ## Provenance
 

@@ -6,7 +6,8 @@ import { ISettingsModel, ThemeMode } from './models/ISettingsModel';
 import { StorageService } from './services/StorageService';
 import { ExtensionCommunicationService, PredefinedActionsService, designerCopyService } from './services';
 import { utilityActionsService } from './services/UtilityActionsService';
-import { DefaultButton, Icon, MessageBar, MessageBarType, Pivot, PivotItem } from '@fluentui/react';
+import { DefaultButton, Icon, MessageBar, MessageBarType, Pivot, PivotItem, ThemeProvider } from '@fluentui/react';
+import { getFluentTheme, loadFluentTheme, resolveTheme } from './theme/fluentTheme';
 import ActionsList from './components/ActionsList';
 import Settings from './components/Settings';
 import PredefinedActionsList from './components/PredefinedActionsList';
@@ -37,6 +38,7 @@ function App(initialState?: IInitialState | undefined) {
   const recordingTimerRef = useRef<NodeJS.Timeout | null>(null);
   const countdownTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [isFlowPage, setIsFlowPage] = useState<boolean>(false);
+  const [isEnvironmentPage, setIsEnvironmentPage] = useState<boolean>(false);
   const [activeTheme, setActiveTheme] = useState<ThemeMode>('system');
 
   const applyTheme = useCallback((mode: ThemeMode) => {
@@ -46,6 +48,8 @@ function App(initialState?: IInitialState | undefined) {
     } else {
       document.documentElement.dataset.theme = mode;
     }
+    // Portalled surfaces (dialogs, callouts) miss the ThemeProvider tree
+    loadFluentTheme(resolveTheme(mode));
   }, []);
 
   const toggleTheme = useCallback(async () => {
@@ -237,9 +241,11 @@ function App(initialState?: IInitialState | undefined) {
       if (chrome.runtime.lastError) {
         console.error('Failed to check flow page:', chrome.runtime.lastError);
         setIsFlowPage(false);
+        setIsEnvironmentPage(false);
         return;
       }
       setIsFlowPage(response?.isFlowPage || false);
+      setIsEnvironmentPage(response?.isEnvironmentPage || false);
     });
   }, []);
 
@@ -702,6 +708,32 @@ function App(initialState?: IInitialState | undefined) {
     });
   }, []);
 
+  const openFlowsList = useCallback(() => {
+    chrome.runtime.sendMessage({ type: 'open-flows-list' } as FlowEditorActions, (response) => {
+      if (chrome.runtime.lastError) {
+        console.error('Failed to open flows list:', chrome.runtime.lastError);
+        setNotificationMessage('Failed to open flows list');
+        setIsSuccessNotification(false);
+        return;
+      }
+      if (!response?.success) {
+        setNotificationMessage(response?.error || 'Failed to open flows list');
+        setIsSuccessNotification(false);
+      }
+    });
+  }, []);
+
+  const renderFlowsListButton = useCallback(() => {
+    return isEnvironmentPage && <Icon
+      className="App-icon"
+      iconName='BulletedList2'
+      title="List Environment Flows"
+      onClick={openFlowsList}
+      onMouseEnter={() => { setHoverMessage("List all flows in this environment and download them as JSON") }}
+      onMouseLeave={() => { setHoverMessage(null) }}
+    ></Icon>;
+  }, [isEnvironmentPage, openFlowsList])
+
   const renderFlowEditorButton = useCallback(() => {
     return isFlowPage && <Icon
       className="App-icon"
@@ -733,7 +765,7 @@ function App(initialState?: IInitialState | undefined) {
   }, [activeTheme, toggleTheme]);
 
   return (
-    <div className="App">
+    <ThemeProvider theme={getFluentTheme(resolveTheme(activeTheme))} className="App">
       <header className="App-header">
         {renderRecordButton()}
         {renderClearButton()}
@@ -742,6 +774,7 @@ function App(initialState?: IInitialState | undefined) {
         {renderCopyAllActionsFromPage()}
         {renderInsertToClipboardV3Button()}
         {renderFlowEditorButton()}
+        {renderFlowsListButton()}
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '4px' }}>
           {renderThemeToggle()}
           {renderSettingsButton()}
@@ -852,7 +885,7 @@ function App(initialState?: IInitialState | undefined) {
           )}
         </Pivot>
       )}
-    </div >
+    </ThemeProvider>
   );
 }
 

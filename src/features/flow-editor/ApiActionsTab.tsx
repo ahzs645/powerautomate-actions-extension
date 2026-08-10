@@ -23,15 +23,16 @@ const cardStyles = mergeStyles({
   padding: '16px',
   borderRadius: '8px',
   boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-  backgroundColor: '#fff',
+  backgroundColor: 'var(--color-bg-card)',
+  color: 'var(--color-fg)',
   marginBottom: '12px',
 });
 
 const warningCardStyles = mergeStyles({
   padding: '12px 16px',
   borderRadius: '8px',
-  backgroundColor: '#fff4ce',
-  borderLeft: '4px solid #ff8c00',
+  backgroundColor: 'var(--color-warning-bg)',
+  borderLeft: '4px solid var(--color-warning)',
   marginBottom: '12px',
 });
 
@@ -159,7 +160,7 @@ export const ApiActionsTab: React.FC<ApiActionsTabProps> = ({
           <Text
             styles={{
               root: {
-                color: item.filter ? '#323130' : '#a19f9d',
+                color: item.filter ? 'var(--color-fg)' : 'var(--color-fg-muted)',
                 fontStyle: item.filter ? 'normal' : 'italic',
               },
             }}
@@ -177,7 +178,7 @@ export const ApiActionsTab: React.FC<ApiActionsTabProps> = ({
           <Icon
             iconName={item.pagination === 'Yes' ? 'CheckMark' : 'Cancel'}
             styles={{
-              root: { color: item.pagination === 'Yes' ? '#107c10' : '#a19f9d' },
+              root: { color: item.pagination === 'Yes' ? 'var(--color-success)' : 'var(--color-fg-muted)' },
             }}
           />
         ),
@@ -193,7 +194,7 @@ export const ApiActionsTab: React.FC<ApiActionsTabProps> = ({
           <Text
             styles={{
               root: {
-                color: item.retry !== 'Default' ? '#107c10' : '#a19f9d',
+                color: item.retry !== 'Default' ? 'var(--color-success)' : 'var(--color-fg-muted)',
               },
             }}
           >
@@ -210,7 +211,7 @@ export const ApiActionsTab: React.FC<ApiActionsTabProps> = ({
           <Icon
             iconName={item.secure === 'Yes' ? 'Lock' : ''}
             styles={{
-              root: { color: item.secure === 'Yes' ? '#0078d4' : 'transparent' },
+              root: { color: item.secure === 'Yes' ? 'var(--color-brand)' : 'transparent' },
             }}
           />
         ),
@@ -225,7 +226,7 @@ export const ApiActionsTab: React.FC<ApiActionsTabProps> = ({
           <Text
             styles={{
               root: {
-                color: item.tier === 'Premium' ? '#8764b8' : '#107c10',
+                color: item.tier === 'Premium' ? 'var(--color-accent)' : 'var(--color-success)',
                 fontWeight: 600,
               },
             }}
@@ -250,13 +251,13 @@ export const ApiActionsTab: React.FC<ApiActionsTabProps> = ({
             <Text variant="small">API Actions</Text>
           </Stack>
           <Stack>
-            <Text variant="xLarge" styles={{ root: { fontWeight: 700, color: '#8764b8' } }}>
+            <Text variant="xLarge" styles={{ root: { fontWeight: 700, color: 'var(--color-accent)' } }}>
               {apiActions.filter((a) => a.tier === 'Premium').length}
             </Text>
             <Text variant="small">Premium</Text>
           </Stack>
           <Stack>
-            <Text variant="xLarge" styles={{ root: { fontWeight: 700, color: '#ff8c00' } }}>
+            <Text variant="xLarge" styles={{ root: { fontWeight: 700, color: 'var(--color-warning)' } }}>
               {issues.filter((i) => i.severity === 'warning').length}
             </Text>
             <Text variant="small">Warnings</Text>
@@ -277,7 +278,7 @@ export const ApiActionsTab: React.FC<ApiActionsTabProps> = ({
                   iconName={issue.severity === 'warning' ? 'Warning' : 'Info'}
                   styles={{
                     root: {
-                      color: issue.severity === 'warning' ? '#ff8c00' : '#0078d4',
+                      color: issue.severity === 'warning' ? 'var(--color-warning)' : 'var(--color-brand)',
                     },
                   }}
                 />
@@ -287,7 +288,7 @@ export const ApiActionsTab: React.FC<ApiActionsTabProps> = ({
               </Stack>
             ))}
             {issues.length > 5 && (
-              <Text styles={{ root: { color: '#605e5c', fontStyle: 'italic' } }}>
+              <Text styles={{ root: { color: 'var(--color-fg-secondary)', fontStyle: 'italic' } }}>
                 ... and {issues.length - 5} more issues
               </Text>
             )}
@@ -304,7 +305,7 @@ export const ApiActionsTab: React.FC<ApiActionsTabProps> = ({
           styles={{ root: { width: 250 } }}
         />
         <Text
-          styles={{ root: { color: '#0078d4', cursor: 'pointer' } }}
+          styles={{ root: { color: 'var(--color-brand)', cursor: 'pointer' } }}
           onClick={() =>
             onExportCsv(
               filteredActions.map((a) => ({

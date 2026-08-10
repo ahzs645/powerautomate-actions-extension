@@ -18,6 +18,10 @@ export interface OpenFlowEditor {
   flowId: string;
 }
 
+export interface OpenFlowsList {
+  type: 'open-flows-list';
+}
+
 export interface CheckFlowPage {
   type: 'check-flow-page';
 }
@@ -25,6 +29,8 @@ export interface CheckFlowPage {
 export interface FlowPageStatus {
   type: 'flow-page-status';
   isFlowPage: boolean;
+  /** True on any Power Automate page that identifies an environment, flow page or not. */
+  isEnvironmentPage?: boolean;
   envId?: string;
   flowId?: string;
 }
@@ -34,5 +40,6 @@ export type FlowEditorActions =
   | TokenChanged
   | AppLoaded
   | OpenFlowEditor
+  | OpenFlowsList
   | CheckFlowPage
   | FlowPageStatus;

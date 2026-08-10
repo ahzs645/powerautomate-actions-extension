@@ -32,7 +32,7 @@ const cardStyles = mergeStyles({
   padding: '16px',
   borderRadius: '8px',
   boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-  backgroundColor: '#fff',
+  backgroundColor: 'var(--color-bg-card)',
   marginBottom: '12px',
 });
 
@@ -139,7 +139,7 @@ export const FlowComparisonPanel: React.FC<FlowComparisonPanelProps> = ({
           <Text
             styles={{
               root: {
-                color: item.kind === 'D' ? '#d13438' : '#605e5c',
+                color: item.kind === 'D' ? 'var(--color-danger)' : 'var(--color-fg-secondary)',
                 fontSize: 12,
                 fontFamily: 'Consolas, monospace',
               },
@@ -159,7 +159,7 @@ export const FlowComparisonPanel: React.FC<FlowComparisonPanelProps> = ({
           <Text
             styles={{
               root: {
-                color: item.kind === 'N' ? '#107c10' : '#605e5c',
+                color: item.kind === 'N' ? 'var(--color-success)' : 'var(--color-fg-secondary)',
                 fontSize: 12,
                 fontFamily: 'Consolas, monospace',
               },
@@ -213,9 +213,9 @@ export const FlowComparisonPanel: React.FC<FlowComparisonPanelProps> = ({
 
         {/* Status */}
         {hasStoredFlow && !comparisonResult && (
-          <div className={cardStyles} style={{ backgroundColor: '#f0f6ff' }}>
+          <div className={cardStyles} style={{ backgroundColor: 'var(--color-info-bg)' }}>
             <Stack horizontal tokens={{ childrenGap: 8 }} verticalAlign="center">
-              <Icon iconName="CheckMark" styles={{ root: { color: '#107c10' } }} />
+              <Icon iconName="CheckMark" styles={{ root: { color: 'var(--color-success)' } }} />
               <Text>Baseline flow stored. Make changes and click "Compare" to see differences.</Text>
             </Stack>
           </div>

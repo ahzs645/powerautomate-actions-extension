@@ -25,17 +25,34 @@
 // maps in such captures are usually 92-byte "Please wait a bit" stubs rather than
 // real maps, so the minified bundles are scanned directly - no map needed.
 //
-// Known gap: a capture only contains the manifests the captured page actually
-// loaded. Operation manifests are fetched on demand, so a capture taken on a flow
-// with no Scope/Foreach/Until/Switch will not contain those four icons. Open a
-// flow that uses them before capturing if you need to fill that gap.
+// Two separate reasons an icon can seem to be missing, and they are easy to
+// confuse. (1) The capture genuinely lacks the chunk - check with `jsmap coverage`.
+// (2) The icon is there but nothing names it inline, because the classic designer
+// references glyphs through alias modules. Only (1) needs a re-capture; (2) needs
+// the contact sheet and a pair of eyes.
 
 const fs = require('fs');
 const path = require('path');
 
-// The manifest shape is stable across designer builds: an iconUri data URI,
-// followed within the same properties object by brandColor and description.
+// Two manifest shapes exist, and missing the second one is the classic mistake:
+//
+//   newer designer:  iconUri: "data:image/svg+xml;base64,..."   <- literal
+//   classic designer: iconUri: y.default                        <- alias
+//
+// In the classic designer every glyph is its own anonymous webpack module whose
+// entire body is `t.default = "data:image/svg+xml;base64,..."`, and the manifest
+// only references it through a minified alias. Grepping for `iconUri: "data:`
+// therefore returns ZERO hits against the classic bundle even though every icon is
+// present - which is exactly how Scope/Foreach/Until/Switch were once wrongly
+// reported as absent from a capture that contained them all along.
+//
+// This scanner reports both: manifests with an inline URI, and every standalone
+// data-URI module, so the count reflects what is really there. Resolving an alias
+// back to its operation needs the webpack dependency graph; use
+// `jsmap assets --sheet` plus the contact sheet to name those by eye.
 const ICON_PATTERN = /iconUri:\s*"(data:image\/svg\+xml[^"]+)"/g;
+const ALIAS_PATTERN = /iconUri:\s*([A-Za-z_$][\w$]*)\.default/g;
+const STANDALONE_PATTERN = /\.default\s*=\s*"(data:image\/svg\+xml[^"]+)"/g;
 const MANIFEST_TAIL = 2500; // chars after the iconUri that still describe it
 
 function parseArgs(argv) {
@@ -66,8 +83,31 @@ function* walkJs(dir) {
 }
 
 function extract(captureDir) {
-  const seen = new Set();
-  const icons = [];
+  // Keyed by data URI so the same artwork found twice collapses into one record.
+  // Both designer generations ship identical glyphs, so an icon routinely appears
+  // as a bare alias module in one bundle and as a full manifest in another. Merge
+  // rather than first-wins: whichever pass runs second must not discard metadata.
+  const byUri = new Map();
+  let aliasReferences = 0;
+
+  function upsert(uri, fields) {
+    const existing = byUri.get(uri);
+    if (!existing) {
+      byUri.set(uri, { bytes: uri.length, iconUri: uri, ...fields });
+      return;
+    }
+    for (const [key, value] of Object.entries(fields)) {
+      const current = existing[key];
+      const emptyNow =
+        current === '' || current === undefined ||
+        (Array.isArray(current) && current.length === 0);
+      const hasValue =
+        value !== '' && value !== undefined &&
+        !(Array.isArray(value) && value.length === 0);
+      if (emptyNow && hasValue) existing[key] = value;
+    }
+    if (fields.viaAlias === false) existing.viaAlias = false;
+  }
 
   for (const file of walkJs(captureDir)) {
     let source;
@@ -76,30 +116,49 @@ function extract(captureDir) {
     } catch {
       continue; // a >2GB chunk or a permission problem: skip rather than abort
     }
+    const relative = path.relative(captureDir, file);
 
+    // Pass 1 - manifests that inline the URI, which carry the useful metadata.
     ICON_PATTERN.lastIndex = 0;
     let match;
     while ((match = ICON_PATTERN.exec(source)) !== null) {
-      const uri = match[1];
-      // The same connector's manifest is often duplicated across chunks.
-      if (seen.has(uri)) continue;
-      seen.add(uri);
-
       // Measured from the end of the match, not its start: a data URI can run to
       // ~3KB on its own, so offsetting from match.index would land inside it.
       const tailStart = match.index + match[0].length;
       const tail = source.slice(tailStart, tailStart + MANIFEST_TAIL);
-      icons.push({
-        file: path.relative(captureDir, file),
+      upsert(match[1], {
+        file: relative,
         brandColor: firstMatch(tail, /brandColor:\s*"([^"]+)"/),
         description: firstMatch(tail, /description:\s*\n?\s*"([^"]{0,160})"/),
         provider: firstMatch(tail, /connectionProviders\/([a-zA-Z]+)/),
         summaries: allMatches(tail, /summary:\s*"([^"]{0,60})"/).slice(0, 4),
-        bytes: uri.length,
-        iconUri: uri,
+        viaAlias: false,
       });
     }
+
+    // Pass 2 - standalone icon modules referenced elsewhere by alias.
+    STANDALONE_PATTERN.lastIndex = 0;
+    let standalone;
+    while ((standalone = STANDALONE_PATTERN.exec(source)) !== null) {
+      upsert(standalone[1], {
+        file: relative,
+        brandColor: '',
+        description: '',
+        provider: '',
+        summaries: [],
+        viaAlias: true,
+      });
+    }
+
+    ALIAS_PATTERN.lastIndex = 0;
+    while (ALIAS_PATTERN.exec(source) !== null) aliasReferences++;
   }
+
+  // Named records first: they are the ones you can act on without the sheet.
+  const icons = [...byUri.values()].sort(
+    (a, b) => Number(a.viaAlias) - Number(b.viaAlias)
+  );
+  icons.aliasReferences = aliasReferences;
   return icons;
 }
 
@@ -188,7 +247,16 @@ function main() {
     process.exit(2);
   }
 
-  console.log(`${icons.length} unique operation icons\n`);
+  const named = icons.filter(i => !i.viaAlias);
+  console.log(`${icons.length} unique operation icons ` +
+    `(${named.length} with inline metadata, ${icons.length - named.length} via alias modules)\n`);
+  if (icons.aliasReferences > 0) {
+    console.log(
+      `  ${icons.aliasReferences} manifests reference their icon by alias rather than\n` +
+      `  inlining it. Those icons are in the capture but this scanner cannot name them;\n` +
+      `  use the contact sheet to identify them by eye.\n`
+    );
+  }
   console.log('  #  brand      provider        summary / description');
   console.log('  -  ---------  --------------  ---------------------');
   icons.forEach((icon, i) => {
@@ -215,8 +283,9 @@ function main() {
     console.log(`wrote ${args.sheet} - open it to identify each glyph`);
   }
 
-  // Report the gap explicitly: a silent inventory reads as "everything is here".
-  // These four are the ones OperationIcons.ts still falls back to initials for.
+  // Absence here means "no manifest names it", NOT "not in the capture" - most
+  // icons arrive as unnamed alias modules. Conflating the two is what produced a
+  // confident, wrong claim that Scope/Foreach/Until/Switch were missing.
   const WANTED = {
     Scope: /\bscope\b/i,
     Foreach: /apply to each|for each|foreach/i,
@@ -226,18 +295,18 @@ function main() {
   const haystack = icons
     .map(i => `${i.description} ${i.summaries.join(' ')} ${i.provider}`)
     .join(' | ');
-  const absent = Object.keys(WANTED).filter(name => !WANTED[name].test(haystack));
+  const unnamed = Object.keys(WANTED).filter(name => !WANTED[name].test(haystack));
 
-  if (absent.length > 0) {
-    console.log(`\nnot in this capture: ${absent.join(', ')}`);
+  if (unnamed.length > 0) {
+    console.log(`\nnot named by any manifest here: ${unnamed.join(', ')}`);
     console.log(
-      'Operation manifests load on demand, so a capture only contains what the\n' +
-        'captured page actually used. To pick these up, open a flow that uses them\n' +
-        'in the designer before saving the page, then re-run this script.'
+      'This does NOT mean they are absent. Their glyphs are almost certainly among\n' +
+        'the alias modules above - the classic designer never names them inline.\n' +
+        'Generate the contact sheet and identify them by eye before concluding\n' +
+        'anything is missing; use jsmap coverage to check the capture itself.'
     );
-  } else {
-    console.log('\nAll four previously-missing operations (Scope, Foreach, Until, Switch) are present.');
   }
+
   console.log('\nSee docs/operation-icons.md for how to fold these into OperationIcons.ts.');
 }
 

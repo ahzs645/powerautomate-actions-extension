@@ -45,7 +45,8 @@ const cardStyles = mergeStyles({
   padding: '16px',
   borderRadius: '8px',
   boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-  backgroundColor: '#fff',
+  backgroundColor: 'var(--color-bg-card)',
+  color: 'var(--color-fg)',
   marginBottom: '12px',
 });
 
@@ -60,16 +61,16 @@ const metricStyles = (color: string) =>
   });
 
 const uploadAreaStyles = mergeStyles({
-  border: '2px dashed #0078d4',
+  border: '2px dashed var(--color-brand)',
   borderRadius: '8px',
   padding: '32px',
   textAlign: 'center',
-  backgroundColor: '#f0f6ff',
+  backgroundColor: 'var(--color-info-bg)',
   cursor: 'pointer',
   transition: 'all 0.2s',
   ':hover': {
-    backgroundColor: '#deecf9',
-    borderColor: '#106ebe',
+    backgroundColor: 'var(--color-info-bg)',
+    borderColor: 'var(--color-brand)',
   },
 });
 
@@ -215,7 +216,7 @@ export const SolutionAnalysisPanel: React.FC<SolutionAnalysisPanelProps> = ({
       onRender: (item: SolutionFlow) => {
         const failCount = item.exceptionAnalysis?.issues.filter((i) => i.level === 'fail').length || 0;
         return (
-          <Text styles={{ root: { color: failCount > 0 ? '#d13438' : '#107c10' } }}>
+          <Text styles={{ root: { color: failCount > 0 ? 'var(--color-danger)' : 'var(--color-success)' } }}>
             {failCount > 0 ? failCount : 'None'}
           </Text>
         );
@@ -248,7 +249,7 @@ export const SolutionAnalysisPanel: React.FC<SolutionAnalysisPanelProps> = ({
       onRender: (item: SolutionConnection) => (
         <Icon
           iconName={item.isCustomizable ? 'CheckMark' : 'Cancel'}
-          styles={{ root: { color: item.isCustomizable ? '#107c10' : '#605e5c' } }}
+          styles={{ root: { color: item.isCustomizable ? 'var(--color-success)' : 'var(--color-fg-secondary)' } }}
         />
       ),
     },
@@ -351,7 +352,7 @@ export const SolutionAnalysisPanel: React.FC<SolutionAnalysisPanelProps> = ({
   // Generate SVG for flow dependency diagram
   const generateFlowDependencySvg = useCallback(() => {
     if (!flowDependencyGraph || flowDependencyGraph.nodes.length === 0) {
-      return '<p style="color: #666; padding: 20px;">No flow dependencies found.</p>';
+      return '<p style="color: var(--color-fg-secondary); padding: 20px;">No flow dependencies found.</p>';
     }
 
     const nodeWidth = 180;
@@ -430,7 +431,7 @@ export const SolutionAnalysisPanel: React.FC<SolutionAnalysisPanelProps> = ({
 
     // Build SVG
     let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${maxX}" height="${maxY}" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 11px;">`;
-    svg += `<rect width="100%" height="100%" fill="#fafafa" />`;
+    svg += `<rect width="100%" height="100%" fill="var(--color-bg-subtle)" />`;
 
     // Arrow marker
     svg += `
@@ -515,12 +516,12 @@ export const SolutionAnalysisPanel: React.FC<SolutionAnalysisPanelProps> = ({
             >
               <Icon
                 iconName="CloudUpload"
-                styles={{ root: { fontSize: 48, color: '#0078d4', marginBottom: 12 } }}
+                styles={{ root: { fontSize: 48, color: 'var(--color-brand)', marginBottom: 12 } }}
               />
               <Text variant="large" block styles={{ root: { marginBottom: 8 } }}>
                 Drag & drop a solution .zip file here
               </Text>
-              <Text variant="small" styles={{ root: { color: '#605e5c' } }}>
+              <Text variant="small" styles={{ root: { color: 'var(--color-fg-secondary)' } }}>
                 or click to browse
               </Text>
               <input
@@ -660,7 +661,7 @@ export const SolutionAnalysisPanel: React.FC<SolutionAnalysisPanelProps> = ({
                         </div>
                       </Stack>
                       <div
-                        style={{ overflow: 'auto', border: '1px solid #edebe9', borderRadius: 4, backgroundColor: '#fafafa' }}
+                        style={{ overflow: 'auto', border: '1px solid var(--color-stroke)', borderRadius: 4, backgroundColor: 'var(--color-bg-subtle)' }}
                         dangerouslySetInnerHTML={{ __html: generateFlowDependencySvg() }}
                       />
                     </>

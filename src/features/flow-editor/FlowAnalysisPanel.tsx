@@ -30,7 +30,7 @@ const cardStyles = mergeStyles({
   padding: '16px',
   borderRadius: '8px',
   boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-  backgroundColor: '#fff',
+  backgroundColor: 'var(--color-bg-card)',
   marginBottom: '12px',
 });
 
@@ -132,7 +132,7 @@ export const FlowAnalysisPanel: React.FC<FlowAnalysisPanelProps> = ({
       minWidth: 60,
       maxWidth: 80,
       onRender: (item: FlowVariable) => (
-        <Text style={{ color: item.used ? '#107c10' : '#d13438' }}>
+        <Text style={{ color: item.used ? 'var(--color-success)' : 'var(--color-danger)' }}>
           {item.used ? 'Yes' : 'No'}
         </Text>
       ),
@@ -144,7 +144,7 @@ export const FlowAnalysisPanel: React.FC<FlowAnalysisPanelProps> = ({
       minWidth: 60,
       maxWidth: 80,
       onRender: (item: FlowVariable) => (
-        <Text style={{ color: item.named ? '#107c10' : '#ff8c00' }}>
+        <Text style={{ color: item.named ? 'var(--color-success)' : 'var(--color-warning)' }}>
           {item.named ? 'Yes' : 'No'}
         </Text>
       ),
@@ -264,12 +264,12 @@ export const FlowAnalysisPanel: React.FC<FlowAnalysisPanelProps> = ({
           <div className={cardStyles}>
             <Text variant="large" block style={{ marginBottom: 8 }}>Issues</Text>
             {analysisResult.errors.map((err, i) => (
-              <Text key={`err-${i}`} style={{ color: '#d13438' }} block>
+              <Text key={`err-${i}`} style={{ color: 'var(--color-danger)' }} block>
                 Error: {err}
               </Text>
             ))}
             {analysisResult.warnings.map((warn, i) => (
-              <Text key={`warn-${i}`} style={{ color: '#ff8c00' }} block>
+              <Text key={`warn-${i}`} style={{ color: 'var(--color-warning)' }} block>
                 Warning: {warn}
               </Text>
             ))}
@@ -313,7 +313,7 @@ export const FlowAnalysisPanel: React.FC<FlowAnalysisPanelProps> = ({
             return defaultRender({
               ...props,
               styles: isSelected
-                ? { root: { backgroundColor: '#eff6fc', borderLeft: '3px solid #0078d4' } }
+                ? { root: { backgroundColor: 'var(--color-info-bg)', borderLeft: '3px solid var(--color-brand)' } }
                 : undefined,
             });
           }}

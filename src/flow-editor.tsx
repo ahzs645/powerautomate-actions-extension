@@ -1,6 +1,10 @@
 import { initializeIcons } from '@fluentui/react/lib/Icons';
 import { Stack } from '@fluentui/react/lib/Stack';
+import { ThemeProvider } from '@fluentui/react/lib/Theme';
 import { mergeStyles } from '@fluentui/react/lib/Styling';
+import './theme/tokens.css';
+import { getFluentTheme } from './theme/fluentTheme';
+import { useResolvedTheme } from './theme/useResolvedTheme';
 import { MessageBar, MessageBarType } from '@fluentui/react/lib/MessageBar';
 import { Spinner, SpinnerSize } from '@fluentui/react/lib/Spinner';
 import { loader } from '@monaco-editor/react';
@@ -13,6 +17,7 @@ import {
   ApiProviderContextRoot
 } from './services/ApiProvider';
 import { FlowEditorPage } from './features/flow-editor/FlowEditorPage';
+import { FlowsListPage } from './features/flows-list/FlowsListPage';
 import { useEffect, useState } from 'react';
 
 // Import schemas
@@ -29,6 +34,8 @@ mergeStyles({
     margin: 0,
     padding: 0,
     height: '100vh',
+    backgroundColor: 'var(--color-bg)',
+    color: 'var(--color-fg)',
   },
 });
 
@@ -39,16 +46,20 @@ if (root) {
 
 function App() {
   const apiProviderRoot = ApiProviderContextRoot();
+  const resolvedTheme = useResolvedTheme();
   const [isWaitingForAuth, setIsWaitingForAuth] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
 
   const urlParams = new URLSearchParams(window.location.search);
   const envId = urlParams.get('envId');
   const flowId = urlParams.get('flowId');
+  // An envId on its own means "show every flow in this environment"; adding a
+  // flowId opens that one flow in the JSON editor.
+  const isFlowsList = Boolean(envId) && !flowId;
 
   useEffect(() => {
-    if (!envId || !flowId) {
-      setAuthError('Invalid URL parameters. Please open the extension from a Power Automate flow page.');
+    if (!envId) {
+      setAuthError('Invalid URL parameters. Please open the extension from a Power Automate page.');
       setIsWaitingForAuth(false);
       return;
     }
@@ -67,7 +78,7 @@ function App() {
     }
 
     return () => clearTimeout(timeout);
-  }, [apiProviderRoot.isApiReady, envId, flowId]);
+  }, [apiProviderRoot.isApiReady, envId]);
 
   const handleRefresh = () => {
     window.location.reload();
@@ -75,6 +86,10 @@ function App() {
 
   return (
     <HashRouter>
+      <ThemeProvider
+        theme={getFluentTheme(resolvedTheme)}
+        style={{ height: '100%', backgroundColor: 'var(--color-bg)' }}
+      >
       <ApiProviderContext.Provider value={apiProviderRoot}>
         <Stack
           styles={{
@@ -116,7 +131,7 @@ function App() {
           ) : apiProviderRoot.isApiReady && !authError ? (
             <Routes>
               <Route path="/">
-                <Route index element={<FlowEditorPage />} />
+                <Route index element={isFlowsList ? <FlowsListPage /> : <FlowEditorPage />} />
               </Route>
             </Routes>
           ) : !authError ? (
@@ -137,6 +152,7 @@ function App() {
           ) : null}
         </Stack>
       </ApiProviderContext.Provider>
+      </ThemeProvider>
     </HashRouter>
   );
 }

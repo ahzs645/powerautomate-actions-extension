@@ -58,7 +58,7 @@ const ActionsList: React.FC<IActionsListProps> = (props) => {
                     <div style={{ marginBottom: '15px' }}>
                         <strong>URL:</strong>
                         <div style={{ 
-                            backgroundColor: '#f5f5f5', 
+                            backgroundColor: 'var(--color-bg-subtle)', 
                             padding: '8px', 
                             marginTop: '5px', 
                             borderRadius: '4px',
@@ -73,7 +73,7 @@ const ActionsList: React.FC<IActionsListProps> = (props) => {
                     <div style={{ marginBottom: '15px' }}>
                         <strong>Method:</strong>
                         <div style={{ 
-                            backgroundColor: '#f5f5f5', 
+                            backgroundColor: 'var(--color-bg-subtle)', 
                             padding: '8px', 
                             marginTop: '5px', 
                             borderRadius: '4px',
@@ -88,7 +88,7 @@ const ActionsList: React.FC<IActionsListProps> = (props) => {
                         <div style={{ marginBottom: '15px' }}>
                             <strong>Headers:</strong>
                             <div style={{ 
-                                backgroundColor: '#f5f5f5', 
+                                backgroundColor: 'var(--color-bg-subtle)', 
                                 padding: '8px', 
                                 marginTop: '5px', 
                                 borderRadius: '4px',
@@ -105,7 +105,7 @@ const ActionsList: React.FC<IActionsListProps> = (props) => {
                         <div style={{ marginBottom: '15px' }}>
                             <strong>Body:</strong>
                             <div style={{ 
-                                backgroundColor: '#f5f5f5', 
+                                backgroundColor: 'var(--color-bg-subtle)', 
                                 padding: '8px', 
                                 marginTop: '5px', 
                                 borderRadius: '4px',
@@ -123,7 +123,7 @@ const ActionsList: React.FC<IActionsListProps> = (props) => {
                     <div style={{ marginBottom: '15px' }}>
                         <strong>Raw Action JSON:</strong>
                         <div style={{ 
-                            backgroundColor: '#f5f5f5', 
+                            backgroundColor: 'var(--color-bg-subtle)', 
                             padding: '8px', 
                             marginTop: '5px', 
                             borderRadius: '4px',
@@ -188,7 +188,7 @@ const ActionsList: React.FC<IActionsListProps> = (props) => {
     }, [props.toggleFavoriteFunc])
 
     const renderSearch = useCallback(() => {
-        return <div style={{ padding: '10px 20px', backgroundColor: '#f3f2f1' }}>
+        return <div style={{ padding: '10px 20px', backgroundColor: 'var(--color-bg-subtle)' }}>
             <TextField
                 placeholder="Search actions by title..."
                 value={props.searchTerm}
