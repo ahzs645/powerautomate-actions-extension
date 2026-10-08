@@ -190,3 +190,22 @@ export function toFileName(displayName: string, fallback: string): string {
     .replace(/[. ]+$/, '');
   return cleaned || fallback;
 }
+
+/**
+ * Friendly environment name ("Contoso (default)") for page titles and confirmations.
+ * Best effort: resolves to null when the lookup is not available for this host or
+ * fails for any reason, and callers fall back to the environment id.
+ */
+export async function fetchEnvironmentName(api: IApiProvider, envId: string): Promise<string | null> {
+  if (!envId || api.isPowerPlatformApi) {
+    // Environment-scoped Power Platform hosts do not serve the environment resource.
+    return null;
+  }
+  try {
+    const env = await api.get(`providers/Microsoft.ProcessSimple/environments/${envId}`);
+    const name = env?.properties?.displayName;
+    return typeof name === 'string' && name.trim() ? name.trim() : null;
+  } catch {
+    return null;
+  }
+}

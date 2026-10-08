@@ -3,7 +3,7 @@ import JSZip from 'jszip';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMessageBar } from '../../components/shared/Messages';
 import { useApiProviderContext } from '../../services/ApiProvider';
-import { getFlowUrl } from '../flow-editor/useFlowEditor';
+import { getFlowUrl } from '../flow-editor/flowPersistence';
 import {
   FlowSummary,
   getFlowDefinition,

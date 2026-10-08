@@ -7,7 +7,8 @@ import Editor from '@monaco-editor/react';
 import * as monaco from 'monaco-editor/esm/vs/editor/editor.api';
 import { useMemo, useState } from 'react';
 import { LoaderModal } from '../../components/shared/LoaderModal';
-import { Messages } from '../../components/shared/Messages';
+import { StatusMessages } from './useStatusMessages';
+import { findActionRange, findPointerRange, JsonRange } from './flowJsonLocator';
 import { FlowValidationResult } from './FlowValidationResult';
 import { FlowAnalysisPanel } from './FlowAnalysisPanel';
 import { FlowComparisonPanel } from './FlowComparisonPanel';
@@ -30,18 +31,25 @@ export const FlowEditorPage: React.FC = () => {
 
   const {
     name,
-    environment,
-    definition,
+    savedText: definition,
     isLoading,
-    saveDefinition,
-    publishDefinition,
+    saveDraft,
+    publish,
     validate,
     messages,
-    onDismissed,
-    validationResult,
+    dismissMessage,
+    validation,
     validationPaneIsOpen,
     setValidationPaneIsOpen,
   } = useFlowEditor();
+
+  const revealRange = (range: JsonRange) => {
+    if (!editor) return;
+    const selection = new monaco.Range(range.startLine, range.startColumn, range.endLine, range.endColumn);
+    editor.revealRangeInCenter(selection);
+    editor.setSelection(selection);
+    editor.focus();
+  };
 
   const refreshToken = () => {
     chrome.runtime.sendMessage({ type: 'refresh' });
@@ -74,10 +82,10 @@ export const FlowEditorPage: React.FC = () => {
           },
           disabled: !editor || !definition,
           onClick: async () => {
-            const savedDefinition = await saveDefinition(name, environment, editor.getValue());
+            const saved = await saveDraft(editor.getValue());
 
-            if (savedDefinition) {
-              editor.setValue(savedDefinition);
+            if (saved.ok) {
+              editor.setValue(saved.serverText);
             }
           },
         },
@@ -89,10 +97,10 @@ export const FlowEditorPage: React.FC = () => {
           },
           disabled: !editor || !definition,
           onClick: async () => {
-            const savedDefinition = await publishDefinition(name, environment, editor.getValue());
+            const saved = await publish(editor.getValue());
 
-            if (savedDefinition) {
-              editor.setValue(savedDefinition);
+            if (saved.ok) {
+              editor.setValue(saved.serverText);
             }
           },
         },
@@ -150,19 +158,29 @@ export const FlowEditorPage: React.FC = () => {
         },
       ] as ICommandBarItemProps[],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [name, editor, definition, saveDefinition, publishDefinition, validate, environment]
+    [name, editor, definition, saveDraft, publish, validate]
   );
 
   return (
     <>
       {isLoading && <LoaderModal />}
-      <Messages items={messages} onDismissed={onDismissed} />
+      <StatusMessages messages={messages} onDismiss={dismissMessage} />
       <FlowValidationResult
-        errors={validationResult.errors}
-        warnings={validationResult.warnings}
+        report={validation}
         isOpen={validationPaneIsOpen}
         onClose={() => setValidationPaneIsOpen(false)}
-        flowDefinition={editor?.getValue() || definition}
+        onRevealPointer={(pointer) => {
+          const range = editor && findPointerRange(editor.getValue(), pointer);
+          if (!range) return;
+          setValidationPaneIsOpen(false);
+          revealRange(range);
+        }}
+        onRevealOperation={(operation) => {
+          const range = editor && findActionRange(editor.getValue(), operation);
+          if (!range) return;
+          setValidationPaneIsOpen(false);
+          revealRange(range);
+        }}
       />
       <FlowAnalysisPanel
         isOpen={analysisPanelOpen}
