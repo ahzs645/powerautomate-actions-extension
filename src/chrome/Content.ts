@@ -1,4 +1,6 @@
 import { ContentService, ExtensionCommunicationService, StorageService } from "../services";
+import { startDesignerButton } from "./DesignerButton";
+import { isMakerHost } from "./hosts";
 
 const storageService = new StorageService();
 const communicationService = new ExtensionCommunicationService();
@@ -6,10 +8,11 @@ const communicationService = new ExtensionCommunicationService();
 const contentService = new ContentService(storageService, communicationService);
 
 // The postMessage bridge is only exposed on Power Automate / Power Apps
-// pages, and only for a fixed set of read-only-ish message types. The content
-// script is injected into every https page, so without these gates any
-// website could drive the extension and read the responses.
-const BRIDGE_ALLOWED_HOST_PATTERN = /(^|\.)((make|flow)\.(powerautomate|powerapps)\.com|flow\.microsoft\.com|powerautomate\.us|powerapps\.us)$/i;
+// pages (commercial and US Government clouds), and only for a fixed set of
+// read-only-ish message types. Without these gates any page the content script
+// runs on (SharePoint, or a blog it was injected into on demand) could drive
+// the extension and read the responses.
+const BRIDGE_ALLOWED_HOST_PATTERN = /(^|\.)((make|flow)\.(powerautomate|powerapps)\.com|flow\.microsoft\.com|powerautomate\.us|powerapps\.us|flow\.microsoft\.us|powerautomate\.appsplatform\.us|apps\.appsplatform\.us|flow\.appsplatform\.us)$/i;
 const BRIDGE_ALLOWED_MESSAGE_TYPES = new Set(['check-flow-page', 'open-flow-editor']);
 
 const addBridgeListener = () => {
@@ -34,10 +37,30 @@ const addBridgeListener = () => {
     });
 }
 
+const isTopFrame = () => {
+    try {
+        return window.top === window;
+    } catch {
+        return false;
+    }
+}
+
 const main = () => {
     chrome.runtime.onMessage.addListener(contentService.handleContentAction);
     contentService.addCopyListener();
     addBridgeListener();
+
+    // "Edit JSON" in the designer command bar: maker portals only, top frame only.
+    if (isTopFrame() && isMakerHost(window.location.hostname)) {
+        startDesignerButton();
+    }
 }
 
-main();
+// The script is declared for Power Platform / SharePoint hosts and can also be
+// injected on demand (popup → chrome.scripting) into other pages such as
+// community blogs. Guard so a second injection never doubles the listeners.
+const loadedFlag = '__paToolkitContentLoaded';
+if (!(window as any)[loadedFlag]) {
+    (window as any)[loadedFlag] = true;
+    main();
+}
