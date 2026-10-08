@@ -84,6 +84,16 @@ export interface FlowTrigger {
   relativePath?: string;
 }
 
+/** One line of the overall rating: what was measured and the points it earned. */
+export interface RatingFactor {
+  key: string;
+  label: string;
+  /** Short reason, e.g. "23 (green up to 50)". */
+  detail: string;
+  points: number;
+  max: number;
+}
+
 export interface FlowAnalysisResult {
   name: string;
   id: string;
@@ -104,6 +114,8 @@ export interface FlowAnalysisResult {
   hasExceptionScope: boolean;
   variableNamingScore: number;
   composesCount: number;
+  /** How overallRating was reached; overallRating = round(100 * points / max). */
+  ratingBreakdown?: RatingFactor[];
 }
 
 // Saved flow analysis for persistence
@@ -187,7 +199,7 @@ export class FlowAnalyzer {
       const { hasMainScope, hasExceptionScope } = this.checkScopes();
       const variableNamingScore = this.calculateVariableNamingScore();
       const composesCount = this.actions.filter(a => a.Type === 'Compose').length;
-      const overallRating = this.calculateOverallRating(
+      const ratingBreakdown = this.calculateRatingBreakdown(
         complexity,
         this.actions.length,
         this.variables.length,
@@ -196,6 +208,7 @@ export class FlowAnalyzer {
         variableNamingScore,
         composesCount
       );
+      const overallRating = FlowAnalyzer.ratingFromBreakdown(ratingBreakdown);
 
       return {
         name: flowName || def.contentVersion || 'Unknown Flow',
@@ -217,6 +230,7 @@ export class FlowAnalyzer {
         hasExceptionScope,
         variableNamingScore,
         composesCount,
+        ratingBreakdown,
       };
     } catch (error) {
       this.errors.push(`Analysis error: ${error instanceof Error ? error.message : String(error)}`);
@@ -640,7 +654,16 @@ export class FlowAnalyzer {
     return this.actions.filter(a => a.exception === 'Yes').length;
   }
 
-  private calculateOverallRating(
+  /**
+   * Score each rule from the analysis config in its own category, so one bad
+   * category cannot take points from the others, and report every line.
+   *
+   * The categories and points are the configured scoring rules. The overall
+   * rating is the share of available points earned: the previous calculation
+   * left the variables/composes/connections base scores out, so the best
+   * possible flow topped out at 65% and every rating read as mediocre.
+   */
+  private calculateRatingBreakdown(
     complexity: number,
     actionCount: number,
     variableCount: number,
@@ -648,66 +671,105 @@ export class FlowAnalyzer {
     hasExceptionScope: boolean,
     variableNamingScore: number,
     composesCount: number
-  ): number {
+  ): RatingFactor[] {
     const scoring = this.config.scoringConfig;
-    const thresholds = this.config.ratingThresholds;
-    let score = 0;
+    const t = this.config.ratingThresholds;
+    const score = (name: string) => getScoringRuleValue(scoring, name);
+    const factors: RatingFactor[] = [];
 
-    // Helper to get scoring rule value
-    const getScore = (name: string) => getScoringRuleValue(scoring, name);
+    const band = (value: number, amber: number, red: number) =>
+      value <= amber ? 'Green' : value <= red ? 'Amber' : 'Red';
 
-    // Complexity score
-    if (complexity <= thresholds.complexityAmber) {
-      score += getScore('complexityGreen');
-    } else if (complexity <= thresholds.complexityRed) {
-      score += getScore('complexityAmber');
-    } else {
-      score += getScore('complexityRed');
+    const complexityBand = band(complexity, t.complexityAmber, t.complexityRed);
+    factors.push({
+      key: 'complexity',
+      label: 'Complexity',
+      detail: `${complexity} (green up to ${t.complexityAmber}, amber up to ${t.complexityRed})`,
+      points: score(`complexity${complexityBand}`),
+      max: score('complexityGreen'),
+    });
+
+    const actionsBand = band(actionCount, t.actionsAmber, t.actionsRed);
+    factors.push({
+      key: 'actions',
+      label: 'Number of actions',
+      detail: `${actionCount} (green up to ${t.actionsAmber}, amber up to ${t.actionsRed})`,
+      points: score(`actions${actionsBand}`),
+      max: score('actionsGreen'),
+    });
+
+    factors.push({
+      key: 'mainScope',
+      label: 'Main / Try scope',
+      detail: hasMainScope ? 'Present' : 'Missing - wrap the main logic in a scope named Try or Main',
+      points: hasMainScope ? score('mainScope') : 0,
+      max: score('mainScope'),
+    });
+
+    factors.push({
+      key: 'exceptionScope',
+      label: 'Catch scope',
+      detail: hasExceptionScope ? 'Present' : 'Missing - add a Catch scope that runs after the Try scope fails',
+      points: hasExceptionScope ? score('exceptionScope') : 0,
+      max: score('exceptionScope'),
+    });
+
+    factors.push({
+      key: 'varNaming',
+      label: 'Variable naming',
+      detail: variableCount === 0 ? 'No variables' : `${variableNamingScore}% follow the prefix convention`,
+      points: Math.round((variableNamingScore / 100) * score('varNaming')),
+      max: score('varNaming'),
+    });
+
+    if (variableCount > 0) {
+      const allUsed = this.variables.every(v => v.used);
+      const unused = this.variables.filter(v => !v.used).length;
+      factors.push({
+        key: 'varUsed',
+        label: 'Variables used',
+        detail: allUsed ? 'All variables are used' : `${unused} unused`,
+        points: allUsed ? score('varUsed') : 0,
+        max: score('varUsed'),
+      });
     }
 
-    // Action count score
-    if (actionCount <= thresholds.actionsAmber) {
-      score += getScore('actionsGreen');
-    } else if (actionCount <= thresholds.actionsRed) {
-      score += getScore('actionsAmber');
-    } else {
-      score += getScore('actionsRed');
-    }
+    const deducted = (base: string, min: string, per: string, count: number) =>
+      Math.max(0, score(base) - Math.max(0, count - score(min)) * score(per));
 
-    // Main scope bonus
-    if (hasMainScope) {
-      score += getScore('mainScope');
-    }
+    factors.push({
+      key: 'variables',
+      label: 'Variable count',
+      detail: `${variableCount} (−${score('variablesDeduction')} each above ${score('variablesMin')})`,
+      points: deducted('variables', 'variablesMin', 'variablesDeduction', variableCount),
+      max: score('variables'),
+    });
 
-    // Exception scope bonus
-    if (hasExceptionScope) {
-      score += getScore('exceptionScope');
-    }
+    factors.push({
+      key: 'composes',
+      label: 'Compose actions',
+      detail: `${composesCount} (−${score('composesDeduction')} each above ${score('composesMin')})`,
+      points: deducted('composes', 'composesMin', 'composesDeduction', composesCount),
+      max: score('composes'),
+    });
 
-    // Variable naming score
-    score += Math.round((variableNamingScore / 100) * getScore('varNaming'));
+    const connectionCount = this.connections.length;
+    factors.push({
+      key: 'connections',
+      label: 'Connections',
+      detail: `${connectionCount} (−${score('connectionsDeduction')} each above ${score('connectionsMin')})`,
+      points: deducted('connections', 'connectionsMin', 'connectionsDeduction', connectionCount),
+      max: score('connections'),
+    });
 
-    // Variable count deduction
-    const variablesMin = getScore('variablesMin');
-    if (variableCount > variablesMin) {
-      const deduction = (variableCount - variablesMin) * getScore('variablesDeduction');
-      score = Math.max(0, score - deduction);
-    }
+    return factors.filter(f => f.max > 0);
+  }
 
-    // Compose deduction
-    const composesMin = getScore('composesMin');
-    if (composesCount > composesMin) {
-      const deduction = (composesCount - composesMin) * getScore('composesDeduction');
-      score = Math.max(0, score - deduction);
-    }
-
-    // Variable usage bonus
-    const allUsed = this.variables.every(v => v.used);
-    if (allUsed && this.variables.length > 0) {
-      score += getScore('varUsed');
-    }
-
-    return Math.min(100, Math.max(0, score));
+  static ratingFromBreakdown(factors: RatingFactor[]): number {
+    const max = factors.reduce((sum, f) => sum + f.max, 0);
+    if (max <= 0) return 0;
+    const points = factors.reduce((sum, f) => sum + Math.min(f.points, f.max), 0);
+    return Math.min(100, Math.max(0, Math.round((100 * points) / max)));
   }
 
   // Generate nomnoml diagram syntax

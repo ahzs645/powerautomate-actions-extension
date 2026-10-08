@@ -1,19 +1,35 @@
 import { useCallback, useState } from "react";
-import { Checkbox, Icon, TextField, Panel, PanelType } from "@fluentui/react";
+import { IconButton, TextField, TooltipHost } from '@fluentui/react';
 import { IActionModel, Mode } from "../models";
+import { PlaceholderService } from "../services/PlaceholderService";
+import ActionDetailsPanel from "./ActionDetailsPanel";
+import ActionRow from "./ActionRow";
+import EmptyState, { IEmptyStateProps } from "./EmptyState";
 
 export interface IActionsListProps {
     actions: IActionModel[];
     mode: Mode;
     changeSelectionFunc: (action: IActionModel) => void;
     deleteActionFunc: (action: IActionModel) => void;
+    editActionFunc?: (action: IActionModel) => void;
     showButton: boolean;
     toggleFavoriteFunc?: (action: IActionModel) => void;
     searchTerm: string;
     onSearchChange: (searchTerm: string) => void;
+    placeholderService: PlaceholderService;
+    /** Shown when the list itself is empty (not when a search hides everything). */
+    emptyState?: IEmptyStateProps;
+    /** Extra controls in the search row, e.g. "Import from designer". */
+    toolbar?: React.ReactNode;
+    /** Clears the whole list; the caller confirms first. */
+    onClearAll?: () => void;
+    clearLabel?: string;
+    /** Number of items before search filtering, for the empty-state choice. */
+    totalCount?: number;
 }
 
 const ActionsList: React.FC<IActionsListProps> = (props) => {
+    const { searchTerm, onSearchChange } = props;
     const [selectedActionForDetails, setSelectedActionForDetails] = useState<IActionModel | null>(null);
     const [isPanelOpen, setIsPanelOpen] = useState(false);
 
@@ -27,187 +43,68 @@ const ActionsList: React.FC<IActionsListProps> = (props) => {
         setSelectedActionForDetails(null);
     }, []);
 
-    const renderActionDetails = useCallback(() => {
-        if (!selectedActionForDetails) return null;
+    const actions = props.actions || [];
+    const totalCount = props.totalCount ?? actions.length;
+    const hasSearch = !!searchTerm && searchTerm.trim() !== '';
 
-        let parsedBody: any = null;
-        let parsedHeaders: any = null;
-        let parsedActionData: any = null;
-        
-        try {
-            parsedActionData = JSON.parse(selectedActionForDetails.actionJson);
-            parsedBody = parsedActionData.body || selectedActionForDetails.body;
-            parsedHeaders = parsedActionData.headers;
-        } catch (e) {
-            parsedBody = selectedActionForDetails.body;
+    const renderBody = () => {
+        if (actions.length > 0) {
+            return actions.map((action, index) => (
+                <ActionRow
+                    key={action.id || index}
+                    action={action}
+                    rowTitle={action.url}
+                    useSelectButton={props.showButton}
+                    onToggleSelect={props.changeSelectionFunc}
+                    onShowDetails={showActionDetails}
+                    onToggleFavorite={props.toggleFavoriteFunc}
+                    onDelete={props.deleteActionFunc}
+                />
+            ));
         }
-
-        return (
-            <Panel
-                isOpen={isPanelOpen}
-                onDismiss={hideActionDetails}
-                type={PanelType.custom}
-                customWidth="450px"
-                headerText={`Action Details: ${selectedActionForDetails.title}`}
-                closeButtonAriaLabel="Close"
-                styles={{
-                    content: { padding: '20px' }
-                }}
-            >
-                <div style={{ fontSize: '14px', lineHeight: '1.5' }}>
-                    <div style={{ marginBottom: '15px' }}>
-                        <strong>URL:</strong>
-                        <div style={{ 
-                            backgroundColor: 'var(--color-bg-subtle)', 
-                            padding: '8px', 
-                            marginTop: '5px', 
-                            borderRadius: '4px',
-                            wordBreak: 'break-all',
-                            fontFamily: 'monospace',
-                            fontSize: '12px'
-                        }}>
-                            {selectedActionForDetails.url}
-                        </div>
-                    </div>
-
-                    <div style={{ marginBottom: '15px' }}>
-                        <strong>Method:</strong>
-                        <div style={{ 
-                            backgroundColor: 'var(--color-bg-subtle)', 
-                            padding: '8px', 
-                            marginTop: '5px', 
-                            borderRadius: '4px',
-                            fontFamily: 'monospace',
-                            fontSize: '12px'
-                        }}>
-                            {selectedActionForDetails.method}
-                        </div>
-                    </div>
-
-                    {parsedHeaders && (
-                        <div style={{ marginBottom: '15px' }}>
-                            <strong>Headers:</strong>
-                            <div style={{ 
-                                backgroundColor: 'var(--color-bg-subtle)', 
-                                padding: '8px', 
-                                marginTop: '5px', 
-                                borderRadius: '4px',
-                                fontFamily: 'monospace',
-                                fontSize: '12px',
-                                whiteSpace: 'pre-wrap'
-                            }}>
-                                {JSON.stringify(parsedHeaders, null, 2)}
-                            </div>
-                        </div>
-                    )}
-
-                    {parsedBody && (
-                        <div style={{ marginBottom: '15px' }}>
-                            <strong>Body:</strong>
-                            <div style={{ 
-                                backgroundColor: 'var(--color-bg-subtle)', 
-                                padding: '8px', 
-                                marginTop: '5px', 
-                                borderRadius: '4px',
-                                fontFamily: 'monospace',
-                                fontSize: '12px',
-                                whiteSpace: 'pre-wrap',
-                                maxHeight: '300px',
-                                overflowY: 'auto'
-                            }}>
-                                {typeof parsedBody === 'string' ? parsedBody : JSON.stringify(parsedBody, null, 2)}
-                            </div>
-                        </div>
-                    )}
-
-                    <div style={{ marginBottom: '15px' }}>
-                        <strong>Raw Action JSON:</strong>
-                        <div style={{ 
-                            backgroundColor: 'var(--color-bg-subtle)', 
-                            padding: '8px', 
-                            marginTop: '5px', 
-                            borderRadius: '4px',
-                            fontFamily: 'monospace',
-                            fontSize: '12px',
-                            whiteSpace: 'pre-wrap',
-                            maxHeight: '200px',
-                            overflowY: 'auto'
-                        }}>
-                            {parsedActionData ? JSON.stringify(parsedActionData, null, 2) : selectedActionForDetails.actionJson}
-                        </div>
-                    </div>
-                </div>
-            </Panel>
-        );
-    }, [selectedActionForDetails, isPanelOpen, hideActionDetails]);
-    const renderAction = useCallback((action: IActionModel) => {
-        return <div className='App-Action-Row' title={action.url}>
-            {props.showButton ?
-                <Icon className='App-Action-Select' iconName='SingleBookmark' onClick={() => { props.changeSelectionFunc(action) }} title="Select Action To Copy"></Icon>
-                :
-                <Checkbox className='App-Action-Checkbox' checked={action.isSelected} defaultChecked={action.isSelected} onChange={() => { props.changeSelectionFunc(action) }}></Checkbox>}
-            <img src={action.icon} className='App-Action-Icon' alt={action.title}></img>
-            <span className='App-Action-Element'>{action.title}</span>
-            <span className='App-Action-Element'>{action.method}</span>
-            <Icon 
-                className='App-Action-Info' 
-                iconName='Info' 
-                onClick={() => { showActionDetails(action) }} 
-                title="Show Action Details"
-            ></Icon>
-            {props.toggleFavoriteFunc && (
-                <Icon 
-                    className='App-Action-Favorite' 
-                    iconName={action.isFavorite ? 'FavoriteStarFill' : 'FavoriteStar'} 
-                    onClick={() => { props.toggleFavoriteFunc!(action) }} 
-                    title={action.isFavorite ? "Remove from Favorites" : "Add to Favorites"}
-                ></Icon>
-            )}
-            <Icon className='App-Action-Delete' iconName='Delete' onClick={() => { props.deleteActionFunc(action) }}></Icon>
-        </div>;
-    }, [props, showActionDetails])
-
-    const renderActions = useCallback(() => {
-        return props.actions && props.actions.length > 0 && props.actions.map((action, index) => 
-            <div key={action.id || index}>
-                {renderAction(action)}
-            </div>
-        )
-    }, [props.actions, renderAction])
-
-    const renderHeader = useCallback(() => {
-        return <div className='App-Action-Header' style={{ gridTemplateColumns: props.toggleFavoriteFunc ? '80px 30px 200px 60px 30px 30px 30px' : '80px 30px 200px 60px 30px 30px' }}>
-            <span>Select</span>
-            <span></span>
-            <span>Title</span>
-            <span>Method</span>
-            <span>Info</span>
-            {props.toggleFavoriteFunc && <span>Fav</span>}
-            <span></span>
-        </div>;
-    }, [props.toggleFavoriteFunc])
-
-    const renderSearch = useCallback(() => {
-        return <div style={{ padding: '10px 20px', backgroundColor: 'var(--color-bg-subtle)' }}>
-            <TextField
-                placeholder="Search actions by title..."
-                value={props.searchTerm}
-                onChange={(event, newValue) => props.onSearchChange(newValue || '')}
-                styles={{
-                    root: { width: '100%' },
-                    field: { fontSize: '14px' }
-                }}
-                iconProps={{ iconName: 'Search' }}
-            />
-        </div>;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [props.searchTerm, props.onSearchChange])
+        if (hasSearch && totalCount > 0) {
+            return (
+                <EmptyState
+                    iconName="SearchIssue"
+                    title={`No actions match '${searchTerm.trim()}'`}
+                    actionText="Clear search"
+                    onAction={() => onSearchChange('')}
+                />
+            );
+        }
+        return props.emptyState ? <EmptyState {...props.emptyState} /> : null;
+    };
 
     return <>
-        <div>{renderHeader()}</div>
-        <div>{renderSearch()}</div>
-        <div className="App-Actions">{renderActions()}</div>
-        {renderActionDetails()}
+        <div className="list-toolbar">
+            <TextField
+                className="list-toolbar-search"
+                placeholder="Search actions by title..."
+                ariaLabel="Search actions by title"
+                value={searchTerm}
+                onChange={(_event, newValue) => onSearchChange(newValue || '')}
+                iconProps={{ iconName: 'Search' }}
+            />
+            {props.toolbar}
+            {props.onClearAll && totalCount > 0 && (
+                <TooltipHost content={props.clearLabel || 'Clear all'}>
+                    <IconButton
+                        className="list-toolbar-clear"
+                        iconProps={{ iconName: 'Broom' }}
+                        ariaLabel={props.clearLabel || 'Clear all'}
+                        onClick={props.onClearAll}
+                    />
+                </TooltipHost>
+            )}
+        </div>
+        <div className="App-Actions">{renderBody()}</div>
+        <ActionDetailsPanel
+            action={selectedActionForDetails}
+            isOpen={isPanelOpen}
+            onDismiss={hideActionDetails}
+            placeholderService={props.placeholderService}
+            onSave={props.editActionFunc}
+        />
     </>;
 }
 

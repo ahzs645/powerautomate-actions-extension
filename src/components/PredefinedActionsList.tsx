@@ -1,9 +1,14 @@
 import { useCallback, useMemo, useState } from "react";
-import { Icon, TextField, Panel, PanelType, Spinner, SpinnerSize, Checkbox, Dropdown, IDropdownOption, MessageBar, MessageBarType } from "@fluentui/react";
+import { IconButton, Dropdown, IDropdownOption, Link, MessageBar, MessageBarType, Spinner, SpinnerSize, TextField, TooltipHost } from '@fluentui/react';
 import { IActionModel } from "../models";
 import { IUtilityAction } from "../models/IUtilityCatalog";
 import { IUtilityFunctionConfig, utilityActionsService } from "../services/UtilityActionsService";
 import UtilityActionForm from "./UtilityActionForm";
+import { PlaceholderService } from "../services/PlaceholderService";
+import CopyWithOptionsModal from "./CopyWithOptionsModal";
+import ActionDetailsPanel from "./ActionDetailsPanel";
+import ActionRow, { IActionRowButton } from "./ActionRow";
+import EmptyState from "./EmptyState";
 
 const ALL_CATEGORIES = '__all__';
 
@@ -13,19 +18,26 @@ export interface IPredefinedActionsListProps {
     onRefresh?: () => void;
     changeSelectionFunc?: (action: IActionModel) => void;
     toggleFavoriteFunc?: (action: IActionModel) => void;
+    onCopyAction?: (action: IActionModel) => void;
+    placeholderService: PlaceholderService;
     searchTerm: string;
     onSearchChange: (searchTerm: string) => void;
     /** Current function configuration, used when generating a configured action. */
     utilityConfig?: IUtilityFunctionConfig;
     /** Receives an action built from the parameter form. */
     onConfiguredAction?: (action: IActionModel) => void;
+    /** Opens Settings at a section ('library' or 'utility'). */
+    onOpenSettings?: (section: 'library' | 'utility') => void;
 }
+
+const isUtilityAction = (action: IActionModel) => !!action.id?.startsWith('utility-');
 
 const PredefinedActionsList: React.FC<IPredefinedActionsListProps> = (props) => {
     const [selectedActionForDetails, setSelectedActionForDetails] = useState<IActionModel | null>(null);
     const [isPanelOpen, setIsPanelOpen] = useState(false);
     const [categoryFilter, setCategoryFilter] = useState<string>(ALL_CATEGORIES);
     const [configuringAction, setConfiguringAction] = useState<IUtilityAction | null>(null);
+    const [actionForCopyWithOptions, setActionForCopyWithOptions] = useState<IActionModel | null>(null);
 
     const showActionDetails = useCallback((action: IActionModel) => {
         setSelectedActionForDetails(action);
@@ -37,120 +49,6 @@ const PredefinedActionsList: React.FC<IPredefinedActionsListProps> = (props) => 
         setSelectedActionForDetails(null);
     }, []);
 
-    const renderActionDetails = useCallback(() => {
-        if (!selectedActionForDetails) return null;
-
-        let parsedBody: any = null;
-        let parsedHeaders: any = null;
-        let parsedActionData: any = null;
-        
-        try {
-            parsedActionData = JSON.parse(selectedActionForDetails.actionJson);
-            parsedBody = parsedActionData.body || selectedActionForDetails.body;
-            parsedHeaders = parsedActionData.headers;
-        } catch (e) {
-            parsedBody = selectedActionForDetails.body;
-        }
-
-        return (
-            <Panel
-                isOpen={isPanelOpen}
-                onDismiss={hideActionDetails}
-                type={PanelType.custom}
-                customWidth="450px"
-                headerText={`Action Details: ${selectedActionForDetails.title}`}
-                closeButtonAriaLabel="Close"
-                styles={{
-                    content: { padding: '20px' }
-                }}
-            >
-                <div style={{ fontSize: '14px', lineHeight: '1.5' }}>
-                    <div style={{ marginBottom: '15px' }}>
-                        <strong>URL:</strong>
-                        <div style={{ 
-                            backgroundColor: 'var(--color-bg-subtle)', 
-                            padding: '8px', 
-                            marginTop: '5px', 
-                            borderRadius: '4px',
-                            wordBreak: 'break-all',
-                            fontFamily: 'monospace',
-                            fontSize: '12px'
-                        }}>
-                            {selectedActionForDetails.url}
-                        </div>
-                    </div>
-
-                    <div style={{ marginBottom: '15px' }}>
-                        <strong>Method:</strong>
-                        <div style={{ 
-                            backgroundColor: 'var(--color-bg-subtle)', 
-                            padding: '8px', 
-                            marginTop: '5px', 
-                            borderRadius: '4px',
-                            fontFamily: 'monospace',
-                            fontSize: '12px'
-                        }}>
-                            {selectedActionForDetails.method}
-                        </div>
-                    </div>
-
-                    {parsedHeaders && (
-                        <div style={{ marginBottom: '15px' }}>
-                            <strong>Headers:</strong>
-                            <div style={{ 
-                                backgroundColor: 'var(--color-bg-subtle)', 
-                                padding: '8px', 
-                                marginTop: '5px', 
-                                borderRadius: '4px',
-                                fontFamily: 'monospace',
-                                fontSize: '12px',
-                                whiteSpace: 'pre-wrap'
-                            }}>
-                                {JSON.stringify(parsedHeaders, null, 2)}
-                            </div>
-                        </div>
-                    )}
-
-                    {parsedBody && (
-                        <div style={{ marginBottom: '15px' }}>
-                            <strong>Body:</strong>
-                            <div style={{ 
-                                backgroundColor: 'var(--color-bg-subtle)', 
-                                padding: '8px', 
-                                marginTop: '5px', 
-                                borderRadius: '4px',
-                                fontFamily: 'monospace',
-                                fontSize: '12px',
-                                whiteSpace: 'pre-wrap',
-                                maxHeight: '300px',
-                                overflowY: 'auto'
-                            }}>
-                                {typeof parsedBody === 'string' ? parsedBody : JSON.stringify(parsedBody, null, 2)}
-                            </div>
-                        </div>
-                    )}
-
-                    <div style={{ marginBottom: '15px' }}>
-                        <strong>Raw Action JSON:</strong>
-                        <div style={{ 
-                            backgroundColor: 'var(--color-bg-subtle)', 
-                            padding: '8px', 
-                            marginTop: '5px', 
-                            borderRadius: '4px',
-                            fontFamily: 'monospace',
-                            fontSize: '12px',
-                            whiteSpace: 'pre-wrap',
-                            maxHeight: '200px',
-                            overflowY: 'auto'
-                        }}>
-                            {parsedActionData ? JSON.stringify(parsedActionData, null, 2) : selectedActionForDetails.actionJson}
-                        </div>
-                    </div>
-                </div>
-            </Panel>
-        );
-    }, [selectedActionForDetails, isPanelOpen, hideActionDetails]);
-
     /** Utility presets carry a catalog route, so the parameter form can be offered. */
     const getCatalogAction = useCallback((action: IActionModel): IUtilityAction | undefined => {
         if (!action.id?.startsWith('utility-') || action.id.startsWith('utility-parse-')) {
@@ -159,49 +57,52 @@ const PredefinedActionsList: React.FC<IPredefinedActionsListProps> = (props) => 
         return utilityActionsService.getAction(action.id.replace('utility-', ''));
     }, []);
 
+    const handleCopyWithOptions = useCallback((filled: IActionModel) => {
+        setActionForCopyWithOptions(null);
+        props.onCopyAction?.(filled);
+    }, [props]);
+
+    const handleSaveAsFavorite = useCallback((filled: IActionModel) => {
+        props.toggleFavoriteFunc?.({ ...filled, isFavorite: false });
+    }, [props]);
+
     const renderAction = useCallback((action: IActionModel) => {
         const catalogAction = getCatalogAction(action);
+        // Only {{UPPER_CASE}} placeholders warrant the dialog. Expressions such as
+        // @outputs('...') are already-wired dynamic content (the utility recipes
+        // are full of them) and paste fine as they are.
+        const hasPlaceholders = props.placeholderService.extractPlaceholders(action.actionJson || '').length > 0;
+
+        const extraButtons: IActionRowButton[] = [];
+        if (hasPlaceholders) {
+            extraButtons.push({
+                key: 'copy-with-options',
+                iconName: 'VariableGroup',
+                label: 'Copy with options (fill placeholders)',
+                onClick: () => setActionForCopyWithOptions(action),
+                className: 'App-Action-Info',
+            });
+        }
+        if (catalogAction && props.onConfiguredAction) {
+            extraButtons.push({
+                key: 'configure',
+                iconName: 'EditSolid12',
+                label: 'Configure parameters',
+                onClick: () => setConfiguringAction(catalogAction),
+                className: 'App-Action-Configure',
+            });
+        }
 
         return (
-            <div className='App-Action-Row' key={action.id} title={action.description || action.url}>
-                <Checkbox className='App-Action-Checkbox' checked={action.isSelected} defaultChecked={action.isSelected} onChange={() => { props.changeSelectionFunc?.(action) }}></Checkbox>
-                <img src={action.icon} className='App-Action-Icon' alt={action.title}></img>
-                <span className='App-Action-Element'>
-                    {action.title}
-                    {action.warning && (
-                        <Icon
-                            iconName='Warning'
-                            title={action.warning}
-                            style={{ color: 'var(--color-danger)', marginLeft: '6px', verticalAlign: 'middle' }}
-                        />
-                    )}
-                </span>
-                <span className='App-Action-Element'>{action.method}</span>
-                <Icon
-                    className='App-Action-Info'
-                    iconName='Info'
-                    onClick={() => showActionDetails(action)}
-                    title="Show Action Details"
-                ></Icon>
-                {props.toggleFavoriteFunc && (
-                    <Icon
-                        className='App-Action-Favorite'
-                        iconName={action.isFavorite ? 'FavoriteStarFill' : 'FavoriteStar'}
-                        onClick={() => { props.toggleFavoriteFunc!(action) }}
-                        title={action.isFavorite ? "Remove from Favorites" : "Add to Favorites"}
-                    ></Icon>
-                )}
-                {catalogAction && props.onConfiguredAction ? (
-                    <Icon
-                        iconName='Settings'
-                        onClick={() => setConfiguringAction(catalogAction)}
-                        title="Fill in parameters before pasting"
-                        style={{ cursor: 'pointer', width: '30px' }}
-                    />
-                ) : (
-                    <div style={{ width: '30px' }}></div>
-                )}
-            </div>
+            <ActionRow
+                key={action.id}
+                action={action}
+                rowTitle={action.description || action.url}
+                onToggleSelect={props.changeSelectionFunc}
+                onShowDetails={showActionDetails}
+                onToggleFavorite={props.toggleFavoriteFunc}
+                extraButtons={extraButtons}
+            />
         );
     }, [props, showActionDetails, getCatalogAction]);
 
@@ -250,100 +151,113 @@ const PredefinedActionsList: React.FC<IPredefinedActionsListProps> = (props) => 
         return groups;
     }, [filteredActions]);
 
-    const renderHeader = useCallback(() => {
-        return (
-            <div className='App-Action-Header' style={{ gridTemplateColumns: props.toggleFavoriteFunc ? '80px 30px 200px 60px 30px 30px 30px' : '80px 30px 200px 60px 30px 30px' }}>
-                <span>Select</span>
-                <span></span>
-                <span>Title</span>
-                <span>Method</span>
-                <span>Info</span>
-                {props.toggleFavoriteFunc && <span>Fav</span>}
-                <span></span>
-            </div>
-        );
-    }, [props.toggleFavoriteFunc]);
-
-    const renderSearch = useCallback(() => {
-        return (
-            <div style={{ padding: '10px 20px', backgroundColor: 'var(--color-bg-subtle)', display: 'flex', gap: '10px', alignItems: 'center' }}>
-                <TextField
-                    placeholder="Search by title or description..."
-                    value={props.searchTerm}
-                    onChange={(event, newValue) => props.onSearchChange(newValue || '')}
-                    styles={{
-                        root: { flex: 1 },
-                        field: { fontSize: '14px' }
-                    }}
-                    iconProps={{ iconName: 'Search' }}
-                />
-                <Dropdown
-                    selectedKey={categoryFilter}
-                    options={categoryOptions}
-                    onChange={(_e, option) => setCategoryFilter((option?.key as string) || ALL_CATEGORIES)}
-                    styles={{ root: { minWidth: 170 } }}
-                    ariaLabel="Filter by category"
-                />
-                {props.onRefresh && (
-                    <Icon
-                        iconName="Refresh"
-                        onClick={props.onRefresh}
-                        title="Refresh predefined actions"
-                        style={{ cursor: 'pointer', fontSize: '16px', color: 'var(--color-success)' }}
-                    />
-                )}
-            </div>
-        );
+    const clearFilters = useCallback(() => {
+        setCategoryFilter(ALL_CATEGORIES);
+        props.onSearchChange('');
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [props.searchTerm, props.onSearchChange, props.onRefresh, categoryFilter, categoryOptions]);
+    }, [props.onSearchChange]);
+
+    const renderSearch = () => (
+        <div className="list-toolbar list-toolbar--wrap">
+            <TextField
+                className="list-toolbar-search"
+                placeholder="Search by title or description..."
+                ariaLabel="Search library by title or description"
+                value={props.searchTerm}
+                onChange={(_event, newValue) => props.onSearchChange(newValue || '')}
+                iconProps={{ iconName: 'Search' }}
+            />
+            <Dropdown
+                className="list-toolbar-filter"
+                selectedKey={categoryFilter}
+                options={categoryOptions}
+                onChange={(_e, option) => setCategoryFilter((option?.key as string) || ALL_CATEGORIES)}
+                ariaLabel="Filter by category"
+            />
+            {props.onRefresh && (
+                <TooltipHost content="Refresh library">
+                    <IconButton
+                        iconProps={{ iconName: 'Refresh' }}
+                        ariaLabel="Refresh library"
+                        onClick={props.onRefresh}
+                    />
+                </TooltipHost>
+            )}
+        </div>
+    );
 
     if (props.isLoading) {
         return (
-            <div style={{ padding: '20px', textAlign: 'center' }}>
+            <div className="list-loading">
                 <Spinner size={SpinnerSize.medium} label="Loading predefined actions..." />
             </div>
         );
     }
 
-    const hasUnresolvedTokens = props.actions.some(action => utilityActionsService.hasUnresolvedTokens(action));
+    // Only nag about the Function App URL when utility presets are on screen.
+    const visibleUnresolvedUtility = filteredActions.some(action =>
+        isUtilityAction(action) && utilityActionsService.hasUnresolvedTokens(action));
+
+    const renderEmpty = () => {
+        if (props.actions.length === 0) {
+            return (
+                <EmptyState
+                    iconName="Library"
+                    title="No predefined actions available"
+                    hint="Turn on the default catalog or add an action pack URL in Settings."
+                    actionText={props.onOpenSettings ? 'Open library settings' : undefined}
+                    onAction={props.onOpenSettings ? () => props.onOpenSettings!('library') : undefined}
+                />
+            );
+        }
+        const term = props.searchTerm?.trim() || '';
+        const categoryLabel = categoryFilter === ALL_CATEGORIES ? 'all categories' : categoryFilter;
+        return (
+            <EmptyState
+                iconName="SearchIssue"
+                title={term ? `No actions match '${term}' in ${categoryLabel}` : `No actions in ${categoryLabel}`}
+                actionText="Clear filters"
+                onAction={clearFilters}
+            />
+        );
+    };
 
     return (
         <>
-            <div>{renderHeader()}</div>
-            <div>{renderSearch()}</div>
-            {hasUnresolvedTokens && (
-                <MessageBar messageBarType={MessageBarType.warning} isMultiline={false}>
-                    Set the Function App URL in Settings to make these presets runnable.
+            {renderSearch()}
+            {visibleUnresolvedUtility && (
+                <MessageBar messageBarType={MessageBarType.warning} isMultiline={true}>
+                    Set the Function App URL in Settings to make the utility presets runnable.{' '}
+                    {props.onOpenSettings && (
+                        <Link onClick={() => props.onOpenSettings!('utility')}>Open utility settings</Link>
+                    )}
                 </MessageBar>
             )}
             <div className="App-Actions">
-                {filteredActions.length === 0 ? (
-                    <div style={{ padding: '20px', textAlign: 'center', color: 'var(--color-fg-secondary)' }}>
-                        <Icon iconName="Info" style={{ fontSize: '24px', marginBottom: '10px' }} />
-                        <div>No predefined actions available</div>
-                    </div>
-                ) : (
+                {filteredActions.length === 0 ? renderEmpty() : (
                     groupedActions.map(group => (
-                        <div key={group.category}>
-                            <div style={{
-                                padding: '6px 20px',
-                                backgroundColor: 'var(--color-bg-subtle)',
-                                borderTop: '1px solid #edebe9',
-                                borderBottom: '1px solid #edebe9',
-                                fontSize: '11px',
-                                fontWeight: 600,
-                                textTransform: 'uppercase',
-                                letterSpacing: '0.4px',
-                                color: 'var(--color-fg-secondary)',
-                            }}>
-                                {group.category}
-                            </div>
+                        <div key={group.category} role="group" aria-label={group.category}>
+                            <div className="list-group-header">{group.category}</div>
                             {group.actions.map((action) => renderAction(action))}
                         </div>
                     ))
                 )}
             </div>
-            {renderActionDetails()}
+            {actionForCopyWithOptions && (
+                <CopyWithOptionsModal
+                    action={actionForCopyWithOptions}
+                    placeholderService={props.placeholderService}
+                    onCopy={handleCopyWithOptions}
+                    onSaveAsFavorite={handleSaveAsFavorite}
+                    onDismiss={() => setActionForCopyWithOptions(null)}
+                />
+            )}
+            <ActionDetailsPanel
+                action={selectedActionForDetails}
+                isOpen={isPanelOpen}
+                onDismiss={hideActionDetails}
+                placeholderService={props.placeholderService}
+            />
             <UtilityActionForm
                 action={configuringAction}
                 config={props.utilityConfig || {}}

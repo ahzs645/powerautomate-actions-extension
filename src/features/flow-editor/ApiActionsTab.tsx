@@ -257,7 +257,8 @@ export const ApiActionsTab: React.FC<ApiActionsTabProps> = ({
             <Text variant="small">Premium</Text>
           </Stack>
           <Stack>
-            <Text variant="xLarge" styles={{ root: { fontWeight: 700, color: 'var(--color-warning)' } }}>
+            {/* Orange text is under 3:1 on white; the label carries the meaning. */}
+            <Text variant="xLarge" styles={{ root: { fontWeight: 700, color: 'var(--color-fg)' } }}>
               {issues.filter((i) => i.severity === 'warning').length}
             </Text>
             <Text variant="small">Warnings</Text>

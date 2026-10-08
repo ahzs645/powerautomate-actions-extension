@@ -23,9 +23,19 @@ export class BackgroundService implements IBackgroundService {
             case ActionType.DeleteAction:
                 this.storageService.deleteRecordedAction(message.message);
                 break;
+            case ActionType.UpdateAction:
+                this.storageService.updateRecordedAction(message.message).then((updatedActions) => {
+                    sendResponse(updatedActions);
+                });
+                return true;
             case ActionType.DeleteMyClipboardAction:
                 this.storageService.deleteMyClipboardAction(message.message);
                 break;
+            case ActionType.UpdateMyClipboardAction:
+                this.storageService.updateMyClipboardAction(message.message).then((updatedActions) => {
+                    sendResponse(updatedActions);
+                });
+                return true;
             default:
                 console.log('Incorrect Action Type')
         }
@@ -34,7 +44,7 @@ export class BackgroundService implements IBackgroundService {
     private handleRequest = async (req: chrome.webRequest.WebRequestHeadersDetails) => {
         try {
             const isRecording = await this.storageService.getIsRecordingValue();
-            if (isRecording) {
+            if (isRecording && this.platformEnabled) {
                 // Requests without an associated tab (tabId -1) can never be a recording page
                 if (req.tabId < 0) { return; }
                 const isRecordingPage = await this.checkIfPageIsRecordingPage(req.tabId);
@@ -57,27 +67,103 @@ export class BackgroundService implements IBackgroundService {
         }
     }
 
+    /**
+     * Only SharePoint REST (`_api`, `_vti_bin`) and Microsoft Graph requests can
+     * become recorded actions (see ActionsService.getCorrectAction), so the
+     * listeners never need to see any other host.
+     */
+    public static readonly RECORDING_URL_PATTERNS = [
+        "https://*.sharepoint.com/*",
+        "https://*.sharepoint.us/*",
+        "https://*.sharepoint-mil.us/*",
+        "https://graph.microsoft.com/*",
+    ];
+    /** Mirrors StorageService.IS_RECORDING_KEY. */
+    public static readonly RECORDING_FLAG_KEY = "isRecordingActions";
+
+    private recordingListenersAttached = false;
+    private isRecordingFlag = false;
+    private platformEnabled = true;
+
+    private onBeforeRequestListener = (req: chrome.webRequest.WebRequestBodyDetails) => {
+        if (this.actionsWithBody.length >= 10) {
+            this.actionsWithBody.shift();
+        }
+        this.actionsWithBody.push(req);
+        return undefined;
+    }
+
+    private onBeforeSendHeadersListener = (req: chrome.webRequest.WebRequestHeadersDetails) => {
+        this.handleRequest(req);
+        return undefined;
+    }
+
+    private attachRecordingListeners() {
+        if (this.recordingListenersAttached || typeof chrome === 'undefined' || !chrome.webRequest) { return; }
+        const filter: chrome.webRequest.RequestFilter = {
+            urls: BackgroundService.RECORDING_URL_PATTERNS,
+            types: ["xmlhttprequest"]
+        };
+        chrome.webRequest.onBeforeRequest.addListener(this.onBeforeRequestListener, filter, ["requestBody"]);
+        chrome.webRequest.onBeforeSendHeaders.addListener(this.onBeforeSendHeadersListener, filter, ['requestHeaders']);
+        this.recordingListenersAttached = true;
+    }
+
+    private detachRecordingListeners() {
+        if (!this.recordingListenersAttached || typeof chrome === 'undefined' || !chrome.webRequest) { return; }
+        chrome.webRequest.onBeforeRequest.removeListener(this.onBeforeRequestListener);
+        chrome.webRequest.onBeforeSendHeaders.removeListener(this.onBeforeSendHeadersListener);
+        this.recordingListenersAttached = false;
+        // Drop buffered request bodies as soon as recording stops.
+        this.actionsWithBody = [];
+    }
+
+    private syncRecordingListeners() {
+        if (this.isRecordingFlag && this.platformEnabled) {
+            this.attachRecordingListeners();
+        } else {
+            this.detachRecordingListeners();
+        }
+    }
+
+    public isRecordingListenerAttached(): boolean {
+        return this.recordingListenersAttached;
+    }
+
+    /** Master switch (appSettings.extensionEnabled): no recording while disabled. */
+    public setPlatformEnabled = (enabled: boolean) => {
+        this.platformEnabled = enabled;
+        this.syncRecordingListeners();
+    }
+
+    /**
+     * Observe XHRs only while recording is on. The listeners are attached
+     * synchronously first so an event that woke the service worker is not lost
+     * (MV3 only delivers it to listeners registered in the first turn); they
+     * are removed as soon as storage says recording is off, so request bodies
+     * are not buffered (and the worker is not woken) while idle.
+     */
     public recordActions = () => {
-        chrome.webRequest.onBeforeRequest.addListener((req) => {
-            if (this.actionsWithBody.length >= 10) {
-                this.actionsWithBody.shift();
-            }
+        this.isRecordingFlag = true;
+        this.syncRecordingListeners();
 
-            this.actionsWithBody.push(req);
-        }, {
-            urls: ["<all_urls>"],
-            types: ["xmlhttprequest"]
-        },
-            ["requestBody"]);
+        if (typeof chrome !== 'undefined' && chrome.storage?.onChanged) {
+            chrome.storage.onChanged.addListener((changes, area) => {
+                if (area !== 'local' || !changes[BackgroundService.RECORDING_FLAG_KEY]) { return; }
+                this.isRecordingFlag = !!changes[BackgroundService.RECORDING_FLAG_KEY].newValue;
+                this.syncRecordingListeners();
+            });
+        }
 
-        chrome.webRequest.onBeforeSendHeaders.addListener((req) => {
-            this.handleRequest(req);
-        }, {
-            urls: ["<all_urls>"],
-            types: ["xmlhttprequest"]
-        }, [
-            'requestHeaders',
-        ]);
+        Promise.resolve(this.storageService.getIsRecordingValue())
+            .then((isRecording) => {
+                this.isRecordingFlag = !!isRecording;
+                this.syncRecordingListeners();
+            })
+            .catch(() => {
+                this.isRecordingFlag = false;
+                this.syncRecordingListeners();
+            });
     }
 
     private isCorrectReceiver = (message: ICommunicationChromeMessage) => {

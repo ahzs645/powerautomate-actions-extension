@@ -26,6 +26,11 @@ export class StorageService implements IStorageService {
         return await this.deleteActionByKey(action, this.RECORDED_ACTIONS_KEY, result);
     }
 
+    public async updateRecordedAction(action: IActionModel): Promise<IActionModel[]> {
+        const result = await this.getRecordedActions();
+        return await this.updateActionByKey(action, this.RECORDED_ACTIONS_KEY, result);
+    }
+
     public async clearRecordedActions() {
         await chrome.storage.local.set({ [this.RECORDED_ACTIONS_KEY]: [] });
     }
@@ -47,6 +52,11 @@ export class StorageService implements IStorageService {
     public deleteMyClipboardAction = async (action: IActionModel): Promise<IActionModel[]> => {
         const result = await this.getMyClipboardActions();
         return await this.deleteActionByKey(action, this.MY_CLIPBOARD_ACTIONS_KEY, result);
+    }
+
+    public updateMyClipboardAction = async (action: IActionModel): Promise<IActionModel[]> => {
+        const result = await this.getMyClipboardActions();
+        return await this.updateActionByKey(action, this.MY_CLIPBOARD_ACTIONS_KEY, result);
     }
 
     public clearMyClipboardActions = async () => {
@@ -87,6 +97,11 @@ export class StorageService implements IStorageService {
     public async removeFavoriteAction(action: IActionModel): Promise<IActionModel[]> {
         const result = await this.getFavoriteActions();
         return await this.deleteActionByKey(action, this.FAVORITE_ACTIONS_KEY, result);
+    }
+
+    public async updateFavoriteAction(action: IActionModel): Promise<IActionModel[]> {
+        const result = await this.getFavoriteActions();
+        return await this.updateActionByKey(action, this.FAVORITE_ACTIONS_KEY, result);
     }
 
     public async clearFavoriteActions(): Promise<void> {
@@ -254,6 +269,18 @@ export class StorageService implements IStorageService {
         const index = myArray.findIndex((a) => a.id === action.id);
         if (index === -1) { return myArray; }
         myArray.splice(index, 1);
+        await chrome.storage.local.set({ [key]: myArray });
+        return myArray;
+    }
+
+    private updateActionByKey = async (action: IActionModel, key: string, oldActions: IActionModel[]): Promise<IActionModel[]> => {
+        const myArray = oldActions || [];
+        const index = myArray.findIndex((a) => a.id === action.id);
+        if (index === -1) {
+            return myArray;
+        }
+
+        myArray[index] = action;
         await chrome.storage.local.set({ [key]: myArray });
         return myArray;
     }

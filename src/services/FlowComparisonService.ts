@@ -31,45 +31,115 @@ export interface FlowComparisonResult {
   };
 }
 
-const COMPARISON_STORAGE_KEY = 'flowComparisonBase';
+/** A flow definition kept for later comparison, scoped to one flow in one environment. */
+export interface FlowBaseline {
+  envId: string;
+  flowId: string;
+  flowName?: string;
+  /** Optional user label, e.g. "Before refactor". */
+  label?: string;
+  /** ISO timestamp. */
+  savedAt: string;
+  /** Normalised flow (see normalizeFlow). */
+  definition: any;
+}
+
+/** Async key/value storage, so chrome.storage and localStorage look the same. */
+export interface BaselineStore {
+  get(key: string): Promise<unknown>;
+  set(key: string, value: unknown): Promise<void>;
+  remove(key: string): Promise<void>;
+}
+
+/** chrome.storage.local when running as the extension (larger quota, shared across tabs). */
+export function chromeBaselineStore(area: chrome.storage.StorageArea): BaselineStore {
+  const call = <T>(fn: (done: (result?: T) => void) => void) =>
+    new Promise<T | undefined>((resolve, reject) => {
+      fn((result?: T) => {
+        const error = chrome.runtime?.lastError;
+        if (error) reject(new Error(error.message || 'Storage error'));
+        else resolve(result);
+      });
+    });
+  return {
+    async get(key) {
+      const result = await call<Record<string, unknown>>((done) => area.get(key, done));
+      return result ? result[key] : undefined;
+    },
+    async set(key, value) {
+      await call((done) => area.set({ [key]: value }, () => done()));
+    },
+    async remove(key) {
+      await call((done) => area.remove(key, () => done()));
+    },
+  };
+}
+
+export function localBaselineStore(storage: Storage = window.localStorage): BaselineStore {
+  return {
+    async get(key) {
+      const raw = storage.getItem(key);
+      return raw === null ? undefined : JSON.parse(raw);
+    },
+    async set(key, value) {
+      // setItem throws QuotaExceededError for very large flows; let it reach the UI.
+      storage.setItem(key, JSON.stringify(value));
+    },
+    async remove(key) {
+      storage.removeItem(key);
+    },
+  };
+}
+
+export function createBaselineStore(): BaselineStore {
+  const area = typeof chrome !== 'undefined' ? chrome.storage?.local : undefined;
+  return area ? chromeBaselineStore(area) : localBaselineStore();
+}
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 export class FlowComparisonService {
-  /**
-   * Store a flow definition for comparison
-   */
-  storeFlowForComparison(flowDefinition: any): void {
-    try {
-      const normalized = this.normalizeFlow(flowDefinition);
-      localStorage.setItem(COMPARISON_STORAGE_KEY, JSON.stringify(normalized));
-    } catch (error) {
-      console.error('Error storing flow for comparison:', error);
-    }
+  constructor(private readonly store: BaselineStore = createBaselineStore()) {}
+
+  static baselineKey(envId: string, flowId: string): string {
+    return `flowBaseline:${envId}:${flowId}`;
   }
 
-  /**
-   * Check if a flow is stored for comparison
-   */
-  hasStoredFlow(): boolean {
-    return localStorage.getItem(COMPARISON_STORAGE_KEY) !== null;
+  /** "3 Oct 14:02" in local time. */
+  static formatSavedAt(iso: string, now: Date = new Date()): string {
+    const date = new Date(iso);
+    if (isNaN(date.getTime())) return 'at an unknown time';
+    const time = `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+    const day = `${date.getDate()} ${MONTHS[date.getMonth()]}`;
+    return date.getFullYear() === now.getFullYear() ? `${day} ${time}` : `${day} ${date.getFullYear()} ${time}`;
   }
 
-  /**
-   * Get the stored flow definition
-   */
-  getStoredFlow(): any | null {
-    try {
-      const stored = localStorage.getItem(COMPARISON_STORAGE_KEY);
-      return stored ? JSON.parse(stored) : null;
-    } catch {
-      return null;
-    }
+  async getBaseline(envId: string, flowId: string): Promise<FlowBaseline | null> {
+    const value = await this.store.get(FlowComparisonService.baselineKey(envId, flowId));
+    if (!value || typeof value !== 'object' || !(value as FlowBaseline).savedAt) return null;
+    return value as FlowBaseline;
   }
 
-  /**
-   * Clear the stored flow
-   */
-  clearStoredFlow(): void {
-    localStorage.removeItem(COMPARISON_STORAGE_KEY);
+  async saveBaseline(
+    envId: string,
+    flowId: string,
+    flowDefinition: any,
+    meta: { flowName?: string; label?: string; now?: Date } = {}
+  ): Promise<FlowBaseline> {
+    const baseline: FlowBaseline = {
+      envId,
+      flowId,
+      flowName: meta.flowName,
+      label: meta.label?.trim() || undefined,
+      savedAt: (meta.now || new Date()).toISOString(),
+      definition: this.normalizeFlow(flowDefinition),
+    };
+    await this.store.set(FlowComparisonService.baselineKey(envId, flowId), baseline);
+    return baseline;
+  }
+
+  async clearBaseline(envId: string, flowId: string): Promise<void> {
+    await this.store.remove(FlowComparisonService.baselineKey(envId, flowId));
   }
 
   /**
@@ -111,15 +181,9 @@ export class FlowComparisonService {
     };
   }
 
-  /**
-   * Compare current flow with stored flow
-   */
-  compareWithStored(newFlow: any): FlowComparisonResult | null {
-    const storedFlow = this.getStoredFlow();
-    if (!storedFlow) {
-      return null;
-    }
-    return this.compare(storedFlow, newFlow);
+  /** Compare a flow against a stored baseline (baseline on the left). */
+  compareWithBaseline(baseline: FlowBaseline, newFlow: any): FlowComparisonResult {
+    return this.compare(baseline.definition, newFlow);
   }
 
   /**
@@ -231,15 +295,15 @@ export class FlowComparisonService {
   static getDifferenceColor(kind: FlowDifference['kind']): string {
     switch (kind) {
       case 'N':
-        return '#107c10'; // Green - new
+        return 'var(--color-success)';
       case 'D':
-        return '#d13438'; // Red - deleted
+        return 'var(--color-danger)';
       case 'E':
-        return '#ff8c00'; // Orange - edited
+        return 'var(--color-fg)';
       case 'A':
-        return '#0078d4'; // Blue - array change
+        return 'var(--color-info)';
       default:
-        return '#323130';
+        return 'var(--color-fg)';
     }
   }
 

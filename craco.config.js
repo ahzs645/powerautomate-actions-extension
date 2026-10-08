@@ -56,9 +56,17 @@ module.exports = {
                         template: paths.appPublic + '/flow-editor.html',
                         filename: 'flow-editor.html',
                     }),
+                    // Monaco is only reachable from the lazily loaded editor page chunk
+                    // (see src/flow-editor.tsx), so none of this is paid by the flows
+                    // list or the connecting screen. Keep the language and feature
+                    // lists to what a JSON editor uses: every entry adds code.
                     new MonacoWebpackPlugin({
                         languages: ['json'],
-                        features: ['bracketMatching', 'caretOperations', 'clipboard', 'find', 'folding', 'format', 'hover', 'inPlaceReplace', 'linesOperations', 'suggest']
+                        features: [
+                            'bracketMatching', 'caretOperations', 'clipboard', 'contextmenu',
+                            'find', 'folding', 'format', 'gotoError', 'hover', 'inPlaceReplace',
+                            'linesOperations', 'suggest', 'wordHighlighter',
+                        ],
                     })
                 ]
             }

@@ -5,7 +5,7 @@ import { DefaultButton, PrimaryButton, IconButton } from '@fluentui/react/lib/Bu
 import { mergeStyles } from '@fluentui/react/lib/Styling';
 import { MessageBar, MessageBarType } from '@fluentui/react/lib/MessageBar';
 import { FlowAction, FlowTrigger } from '../../services/FlowAnalyzer';
-import { buildDiagram, renderDiagramSvg, inlineDiagramImages } from './FlowDiagram';
+import { buildDiagram, renderDiagramSvg, inlineDiagramImages, diagramCanvasColor } from './FlowDiagram';
 import { useResolvedTheme } from '../../theme/useResolvedTheme';
 import { findActionRange, JsonRange } from './flowJsonLocator';
 
@@ -22,41 +22,77 @@ export interface FlowDiagramTabProps {
   searchText?: string;
   /** Provided by the host page to jump the Monaco editor to the selection. */
   onRevealRange?: (range: JsonRange) => void;
+  /**
+   * 'panel' keeps the canvas to a fixed height (inside a side panel); 'fill' stretches
+   * it to the host's height (the editor page's Diagram / Split view).
+   */
+  layout?: 'panel' | 'fill';
+  /** The details sidebar; the Split view hides it because the JSON is already beside it. */
+  showDetails?: boolean;
 }
 
 const TRIGGER_KEY = '__trigger__';
 const CONTAINER_TYPES = ['If', 'Switch', 'Scope', 'Foreach', 'Until', 'Do_until'];
 
-const layoutStyles = mergeStyles({ display: 'flex', gap: '12px', alignItems: 'stretch' });
+const rootStyles = (fill: boolean) =>
+  mergeStyles(
+    { display: 'flex', flexDirection: 'column', gap: 12 },
+    fill && { height: '100%', minHeight: 0, padding: 12, boxSizing: 'border-box' }
+  );
 
-const canvasStyles = mergeStyles({
-  flex: '1 1 auto',
-  minWidth: 0,
-  border: '1px solid var(--color-stroke)',
-  borderRadius: '4px',
-  backgroundColor: 'var(--color-bg-card)',
-  overflow: 'auto',
-  minHeight: '420px',
-  maxHeight: '620px',
-  cursor: 'grab',
-  ':active': { cursor: 'grabbing' },
-});
+const layoutStyles = (fill: boolean) =>
+  mergeStyles(
+    { display: 'flex', gap: '12px', alignItems: 'stretch' },
+    fill && { flex: '1 1 auto', minHeight: 0 }
+  );
 
-const sidebarStyles = mergeStyles({
-  flex: '0 0 320px',
-  border: '1px solid var(--color-stroke)',
-  borderRadius: '4px',
-  backgroundColor: 'var(--color-bg-card)',
-  padding: '12px',
-  overflow: 'auto',
-  minHeight: '420px',
-  maxHeight: '620px',
+const canvasStyles = (fill: boolean, background: string) =>
+  mergeStyles(
+    {
+      flex: '1 1 auto',
+      minWidth: 0,
+      border: '1px solid var(--color-stroke)',
+      borderRadius: 'var(--radius-sm)',
+      // Same colour as the SVG's own canvas, so the area the drawing does not
+      // cover blends in (it used to show a lighter band in dark mode).
+      backgroundColor: background,
+      overflow: 'auto',
+      cursor: 'grab',
+      ':active': { cursor: 'grabbing' },
+      ':focus-visible': { outline: '2px solid var(--color-brand)', outlineOffset: '1px' },
+      selectors: { '> svg': { display: 'block' } },
+    },
+    fill ? { minHeight: 0 } : { minHeight: '420px', maxHeight: '620px' }
+  );
+
+const sidebarStyles = (fill: boolean) =>
+  mergeStyles(
+    {
+      flex: '0 0 320px',
+      border: '1px solid var(--color-stroke)',
+      borderRadius: 'var(--radius-sm)',
+      backgroundColor: 'var(--color-bg-card)',
+      color: 'var(--color-fg)',
+      padding: '12px',
+      overflow: 'auto',
+    },
+    fill ? { minHeight: 0 } : { minHeight: '420px', maxHeight: '620px' }
+  );
+
+const helpStyles = mergeStyles({
+  margin: 0,
+  fontSize: 'var(--font-size-sm)',
+  lineHeight: 'var(--line-height-sm)',
+  color: 'var(--color-fg-secondary)',
+  flex: '0 0 auto',
 });
 
 const codeStyles = mergeStyles({
   fontFamily: 'Consolas, Monaco, "Courier New", monospace',
   fontSize: '11px',
-  lineHeight: 1.5,
+  // A string: merge-styles turns a bare number into "1.5px", which stacked every
+  // line of the definition on top of the previous one.
+  lineHeight: '1.5',
   backgroundColor: 'var(--color-bg-subtle)',
   border: '1px solid var(--color-stroke)',
   borderRadius: '2px',
@@ -91,7 +127,10 @@ export const FlowDiagramTab: React.FC<FlowDiagramTabProps> = ({
   onSelect,
   searchText,
   onRevealRange,
+  layout = 'panel',
+  showDetails = true,
 }) => {
+  const fill = layout === 'fill';
   const resolvedTheme = useResolvedTheme();
   const [zoom, setZoom] = useState(1);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -122,17 +161,10 @@ export const FlowDiagramTab: React.FC<FlowDiagramTabProps> = ({
     }
   }, [actions, trigger, collapsed]);
 
-  // On screen the diagram is interactive and keeps the designer's insert
-  // affordance; the export drops both so the file is clean, static artwork.
+  // On screen the diagram is interactive and painted with the page's tokens; the
+  // export drops the hit targets and uses plain colours so the file stands alone.
   const interactiveSvg = useMemo(
-    () =>
-      diagram
-        ? renderDiagramSvg(diagram, {
-            interactive: true,
-            showInsertMarkers: true,
-            theme: resolvedTheme,
-          })
-        : '',
+    () => (diagram ? renderDiagramSvg(diagram, { interactive: true, theme: resolvedTheme }) : ''),
     [diagram, resolvedTheme]
   );
 
@@ -303,8 +335,8 @@ export const FlowDiagramTab: React.FC<FlowDiagramTabProps> = ({
 
   const downloadSvg = useCallback(async () => {
     if (!diagram) return;
-    // Static export: no hit targets, no hover styling, no insert markers.
-    const clean = renderDiagramSvg(diagram, { interactive: false, showInsertMarkers: false });
+    // Static export: no hit targets, no hover styling, no CSS variables.
+    const clean = renderDiagramSvg(diagram, { interactive: false });
     const svg = await inlineDiagramImages(clean);
 
     const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
@@ -326,7 +358,7 @@ export const FlowDiagramTab: React.FC<FlowDiagramTabProps> = ({
   if (!diagram) return <Text>No actions to display in the diagram.</Text>;
 
   return (
-    <Stack tokens={{ childrenGap: 12 }}>
+    <div className={rootStyles(fill)}>
       <Stack horizontal tokens={{ childrenGap: 8 }} verticalAlign="center" wrap>
         <DefaultButton iconProps={{ iconName: 'Download' }} text="Download SVG" onClick={downloadSvg} />
         <IconButton
@@ -355,10 +387,10 @@ export const FlowDiagramTab: React.FC<FlowDiagramTabProps> = ({
         </Text>
       </Stack>
 
-      <div className={layoutStyles}>
+      <div className={layoutStyles(fill)}>
         {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */}
         <div
-          className={canvasStyles}
+          className={canvasStyles(fill, diagramCanvasColor(resolvedTheme))}
           ref={canvasRef}
           onClick={handleCanvasClick}
           onKeyDown={handleCanvasKeyDown}
@@ -368,10 +400,11 @@ export const FlowDiagramTab: React.FC<FlowDiagramTabProps> = ({
           onMouseLeave={endPan}
           role="application"
           aria-label="Flow diagram"
+          tabIndex={-1}
         />
 
-        {selectedKey && (
-          <div className={sidebarStyles}>
+        {selectedKey && showDetails && (
+          <div className={sidebarStyles(fill)}>
             <Stack horizontal horizontalAlign="space-between" verticalAlign="center">
               <Text variant="mediumPlus" styles={{ root: { fontWeight: 600 } }}>
                 {selectedKey === TRIGGER_KEY
@@ -428,12 +461,14 @@ export const FlowDiagramTab: React.FC<FlowDiagramTabProps> = ({
         )}
       </div>
 
-      <Text variant="small" styles={{ root: { color: 'var(--color-fg-secondary)' } }}>
-        Click a card to inspect it, the chevron on a scope to collapse it, or drag to pan.
+      <p className={helpStyles}>
+        {showDetails
+          ? 'Click a card to inspect it, the chevron on a scope to collapse it, or drag to pan.'
+          : 'Click a card to show its JSON in the editor, the chevron on a scope to collapse it, or drag to pan.'}{' '}
         Dashed connectors run after something other than plain success; the dots above a card
         show which statuses: green succeeded, red failed, orange timed out, grey skipped.
-      </Text>
-    </Stack>
+      </p>
+    </div>
   );
 };
 
@@ -459,7 +494,8 @@ const ActionDetails: React.FC<{ action: FlowAction | null }> = ({ action }) => {
       <Field label="Type" value={action.Type} />
       <Field label="Connector" value={action.connector?.replace(/^shared_/, '')} />
       <Field label="Tier" value={action.tier} />
-      <Field label="Complexity" value={action.Complexity} />
+      {/* Scopes and Terminate are structural: the analyzer marks them -1 ("adds nothing"). */}
+      <Field label="Complexity" value={action.Complexity >= 0 ? action.Complexity : null} />
       {runAfter.length > 0 && (
         <>
           <div className={fieldLabelStyles}>Runs after</div>

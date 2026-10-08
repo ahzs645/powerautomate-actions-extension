@@ -62,10 +62,11 @@ test('flow editor loads Flow A with correct envId/flowId and shows flow name', a
     editor.getByText(`Flow "${FLOW_A.name}" loaded successfully.`)
   ).toBeVisible({ timeout: 15_000 });
 
-  // Verify flow name is in the CommandBar
+  // The flow name is the page heading (not a command bar button)
   await expect(
-    editor.getByRole('menuitem', { name: FLOW_A.name })
+    editor.getByRole('heading', { name: FLOW_A.name })
   ).toBeVisible();
+  await expect(editor).toHaveTitle(`${FLOW_A.name} — Flow editor`);
 
   // Verify Monaco editor rendered
   const monacoEditor = editor.locator('.monaco-editor');
@@ -90,14 +91,14 @@ test('two flow editors show independent flow data', async () => {
 
   // Verify Flow A editor still shows Flow A
   await editorA.bringToFront();
-  await expect(editorA.getByRole('menuitem', { name: FLOW_A.name })).toBeVisible();
+  await expect(editorA.getByRole('heading', { name: FLOW_A.name })).toBeVisible();
   const contentA = await getEditorContent(editorA);
   expect(contentA).toContain('Send_an_email');
   expect(contentA).not.toContain('Update_item');
 
   // Verify Flow B editor shows Flow B
   await editorB.bringToFront();
-  await expect(editorB.getByRole('menuitem', { name: FLOW_B.name })).toBeVisible();
+  await expect(editorB.getByRole('heading', { name: FLOW_B.name })).toBeVisible();
   const contentB = await getEditorContent(editorB);
   expect(contentB).toContain('Update_item');
   expect(contentB).not.toContain('Send_an_email');
@@ -114,10 +115,11 @@ test('flow editor shows auth timeout when no token is received', async () => {
 
   await expect(editor.getByText('Connecting to Power Automate...')).toBeVisible();
 
-  // Wait for the 30s timeout (flow-editor.tsx:56-61)
+  // Wait for the 30s timeout; the page explains what to do instead of going blank
   await expect(
-    editor.getByText('Authentication timeout. Please refresh the Power Automate page and try again.')
+    editor.getByRole('heading', { name: "Couldn't connect to Power Automate" })
   ).toBeVisible({ timeout: 35_000 });
+  await expect(editor.getByRole('button', { name: 'Retry' })).toBeVisible();
 
   await editor.close();
 });
@@ -131,7 +133,7 @@ test('flow editor shows error when URL params are missing', async () => {
   await editor.waitForLoadState('domcontentloaded');
 
   await expect(
-    editor.getByText('Invalid URL parameters. Please open the extension from a Power Automate flow page.')
+    editor.getByRole('heading', { name: 'Open this from a flow in Power Automate' })
   ).toBeVisible({ timeout: 5_000 });
 
   await editor.close();
@@ -146,11 +148,43 @@ test('command bar buttons are present after flow loads', async () => {
   const commandBar = editor.locator('.ms-CommandBar');
   await expect(commandBar).toBeVisible();
 
-  // Check each button. CommandBar renders buttons — try both 'menuitem' and 'button' roles.
-  for (const name of ['Save', 'Validate', 'Analyze', 'Compare', 'Download JSON', 'Refresh Token']) {
-    const button = editor.getByRole('menuitem', { name }).or(editor.getByRole('button', { name }));
+  // Primary and Check groups are on the bar. CommandBar renders buttons — try both
+  // 'menuitem' and 'button' roles.
+  for (const name of ['Save', 'Publish', 'Validate', 'Analyze', 'Compare']) {
+    const button = editor.getByRole('menuitem', { name, exact: true }).or(editor.getByRole('button', { name, exact: true }));
     await expect(button).toBeVisible();
   }
+
+  // The rest lives in the overflow menu.
+  await editor.getByRole('menuitem', { name: 'More commands' }).or(editor.getByRole('button', { name: 'More commands' })).first().click();
+  for (const name of ['Download JSON', 'Reconnect', 'Analyze solution (.zip)', 'Save method', 'Copy diagnostics']) {
+    await expect(editor.getByRole('menuitem', { name })).toBeVisible();
+  }
+
+  await editor.close();
+});
+
+/**
+ * TEST 5b: A solution flow shows its badge; the Save method submenu defaults to
+ * the Flow service and keeps Dataverse disabled without a Dataverse sign-in.
+ */
+test('solution flow shows a badge and the Save method submenu', async () => {
+  const solutionResponse = {
+    ...FLOW_A.response,
+    properties: { ...FLOW_A.response.properties, workflowEntityId: 'a1b2c3d4-0000-1111-2222-333344445555' },
+  };
+  const editor = await openAndLoadFlow(FLOW_A.id, FLOW_A.name, solutionResponse);
+
+  await expect(editor.getByText('Solution flow', { exact: true })).toBeVisible();
+
+  await editor.getByRole('menuitem', { name: 'More commands' }).or(editor.getByRole('button', { name: 'More commands' })).first().click();
+  await editor.getByRole('menuitem', { name: 'Save method' }).hover();
+  const flowService = editor.getByRole('menuitemcheckbox', { name: 'Flow service (default)' });
+  const dataverse = editor.getByRole('menuitemcheckbox', { name: /Dataverse/ });
+  await expect(flowService).toBeVisible();
+  await expect(flowService).toHaveAttribute('aria-checked', 'true');
+  await expect(dataverse).toHaveAttribute('aria-disabled', 'true');
+  await expect(dataverse).toHaveAttribute('title', /No Dataverse sign-in/);
 
   await editor.close();
 });
@@ -181,7 +215,8 @@ test('download JSON produces a file with the flow name', async () => {
 
   const downloadPromise = editor.waitForEvent('download');
 
-  const downloadBtn = editor.getByRole('menuitem', { name: 'Download JSON' }).or(editor.getByRole('button', { name: 'Download JSON' }));
+  await editor.getByRole('menuitem', { name: 'More commands' }).or(editor.getByRole('button', { name: 'More commands' })).first().click();
+  const downloadBtn = editor.getByRole('menuitem', { name: 'Download JSON' });
   await downloadBtn.click();
 
   const download = await downloadPromise;
@@ -191,22 +226,26 @@ test('download JSON produces a file with the flow name', async () => {
 });
 
 /**
- * TEST 8: Popup tab switching between Recorded Requests, Copied Actions, Favorites.
+ * TEST 8: Popup tab switching between Recorded, Copied, Favorites and Library.
  */
 test('popup pivot tabs switch between action lists', async () => {
   const popup = await openPopup(context, extensionId);
 
-  const recordedTab = popup.getByRole('tab', { name: 'Recorded Requests' });
+  const recordedTab = popup.getByRole('tab', { name: /^Recorded/ });
   await expect(recordedTab).toBeVisible();
   await expect(recordedTab).toHaveAttribute('aria-selected', 'true');
 
-  const copiedTab = popup.getByRole('tab', { name: 'Copied Actions' });
+  const copiedTab = popup.getByRole('tab', { name: /^Copied/ });
   await copiedTab.click();
   await expect(copiedTab).toHaveAttribute('aria-selected', 'true');
 
-  const favoritesTab = popup.getByRole('tab', { name: 'Favorites' });
+  const favoritesTab = popup.getByRole('tab', { name: /^Favorites/ });
   await favoritesTab.click();
   await expect(favoritesTab).toHaveAttribute('aria-selected', 'true');
+
+  const libraryTab = popup.getByRole('tab', { name: /^Library/ });
+  await libraryTab.click();
+  await expect(libraryTab).toHaveAttribute('aria-selected', 'true');
 
   await popup.close();
 });

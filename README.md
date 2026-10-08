@@ -163,6 +163,14 @@ Connector actions (Office 365, Excel, …) get their icon from the flow's own `c
 
 ## New Features
 
+**Merged from upstream** ([mkm17/powerautomate-actions-extension](https://github.com/mkm17/powerautomate-actions-extension))
+- Default predefined actions catalog loaded from the upstream `predefined-actions/` GitHub folder (file name becomes the category, cached for 1 hour, 24-hour back-off when GitHub rate-limits). Toggle it with **Settings → Load Default Actions**; it sits alongside the bundled utility pack and your own pack URLs, de-duplicated by id.
+- New SharePoint predefined actions: site/web operations, role assignments and permission inheritance (web, list and item), content types, fields (with field-type and default-view options), list views and list webhooks.
+- Edit the URL, headers and body of stored actions (recorded, My Clipboard and Favorites) from the action details panel; dynamic content (`@{outputs(...)}`) and `{{PLACEHOLDER}}` tokens show as chips that are protected from accidental breakage.
+- Global placeholder variables: predefined actions containing `{{UPPER_CASE}}` placeholders get a **Copy with options** button that fills them from saved values (Settings → Global Placeholder Variables, with built-in choices for SharePoint role definitions, navigation locations, field types and default-view placement). Placeholder values travel with the analysis configuration export/import.
+- Importing favorites now merges with the existing list and skips duplicate ids instead of replacing it.
+- The popup's runtime message listener is registered once and removed on unmount.
+
 **2.3.0**
 - Added a bundled utility function pack: 42 catalogued endpoints for the File & Utility Azure Functions app (38 enabled by default), pasteable directly into the modern editor.
 - Added Function App URL and key configuration, with a choice between inline keys and `@{parameters(...)}` references.

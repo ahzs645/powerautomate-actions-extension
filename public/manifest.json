@@ -14,8 +14,8 @@
   },
   "permissions": [
     "activeTab",
+    "scripting",
     "webRequest",
-    "background",
     "storage",
     "clipboardRead",
     "clipboardWrite",
@@ -30,17 +30,55 @@
     "service_worker": "./static/js/background.js"
   },
   "host_permissions": [
-    "https://*/*",
-    "*://*.api.flow.microsoft.com/*",
-    "*://*.api.powerautomate.com/*",
-    "*://*.api.powerapps.com/*",
-    "*://*.api.powerplatform.com/*",
-    "*://*.dynamics.com/*"
+    "https://make.powerautomate.com/*",
+    "https://make.preview.powerautomate.com/*",
+    "https://make.powerapps.com/*",
+    "https://make.preview.powerapps.com/*",
+    "https://*.flow.microsoft.com/*",
+    "https://make.gov.powerautomate.us/*",
+    "https://make.high.powerautomate.us/*",
+    "https://make.gov.powerapps.us/*",
+    "https://make.high.powerapps.us/*",
+    "https://*.flow.microsoft.us/*",
+    "https://*.appsplatform.us/*",
+    "https://*.api.powerautomate.com/*",
+    "https://*.api.powerapps.com/*",
+    "https://*.api.powerapps.us/*",
+    "https://*.api.powerplatform.com/*",
+    "https://*.powerplatform.microsoft.us/*",
+    "https://*.dynamics.com/*",
+    "https://*.microsoftdynamics.us/*",
+    "https://*.sharepoint.com/*",
+    "https://*.sharepoint.us/*",
+    "https://*.sharepoint-mil.us/*",
+    "https://graph.microsoft.com/*",
+    "https://developer.microsoft.com/*",
+    "https://webshell.suite.office.com/*",
+    "https://connectoricons-prod.azureedge.net/*",
+    "https://content.powerapps.com/*"
   ],
   "content_scripts": [
     {
       "matches": [
-        "https://*/*"
+        "https://make.powerautomate.com/*",
+        "https://make.preview.powerautomate.com/*",
+        "https://make.powerapps.com/*",
+        "https://make.preview.powerapps.com/*",
+        "https://*.flow.microsoft.com/*",
+        "https://make.gov.powerautomate.us/*",
+        "https://make.high.powerautomate.us/*",
+        "https://make.gov.powerapps.us/*",
+        "https://make.high.powerapps.us/*",
+        "https://gov.flow.microsoft.us/*",
+        "https://high.flow.microsoft.us/*",
+        "https://make.powerautomate.appsplatform.us/*",
+        "https://make.apps.appsplatform.us/*",
+        "https://flow.appsplatform.us/*",
+        "https://*.sharepoint.com/*",
+        "https://*.sharepoint.us/*",
+        "https://*.sharepoint-mil.us/*",
+        "https://developer.microsoft.com/*/graph/graph-explorer*",
+        "https://webshell.suite.office.com/iframe/TokenFactoryIframe*"
       ],
       "js": [
         "./static/js/content.js"

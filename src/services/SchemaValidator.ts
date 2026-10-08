@@ -1,15 +1,22 @@
-// SchemaValidator - Validates Power Automate flow definitions against JSON Schema
-// Uses ajv for JSON Schema validation
+// SchemaValidator - Validates Power Automate flow definitions against JSON Schema.
+//
+// The validator is precompiled at build time (scripts/build-validators.js, Ajv
+// standalone mode). Compiling with Ajv at runtime needs `new Function`, which the
+// Manifest V3 content security policy blocks on extension pages - every validation
+// used to fail with "Refused to evaluate a string as JavaScript".
 
-import Ajv, { ErrorObject } from 'ajv';
-import workflowSchema from '../schemas/workflowdefinition.json';
+import type { ErrorObject } from 'ajv';
+import precompiledValidate from '../schemas/generated/workflowDefinitionValidator';
 
 export interface ValidationIssue {
+  /** Dot-separated, human readable location, e.g. `actions.Try.actions.HTTP.inputs`. */
   path: string;
   message: string;
   keyword: string;
   severity: 'error' | 'warning';
   schemaPath: string;
+  /** Raw JSON pointer into the validated object (`/actions/Try/actions/HTTP/inputs`). */
+  instancePath?: string;
 }
 
 export interface SchemaValidationResult {
@@ -19,25 +26,13 @@ export interface SchemaValidationResult {
   warningCount: number;
 }
 
+type ValidateFn = ((data: unknown) => boolean) & { errors?: ErrorObject[] | null };
+
 export class SchemaValidator {
-  private ajv: Ajv;
-  private validate: ReturnType<Ajv['compile']>;
+  private validate: ValidateFn;
 
-  constructor() {
-    this.ajv = new Ajv({
-      allErrors: true,
-      verbose: true,
-      strict: false,
-    });
-
-    // workflowdefinition.json advertises JSON Schema draft-04, whose meta-schema
-    // Ajv 8 does not ship. Compiling it as-is throws `no schema with key or ref
-    // "http://json-schema.org/draft-04/schema#"`, which the caller reported as
-    // "Invalid JSON" on every single validation. The schema uses no draft-04-only
-    // keywords (no boolean exclusiveMinimum/Maximum, no bare `id`), so dropping the
-    // declaration lets Ajv apply its default draft-07 semantics with the same result.
-    const { $schema, ...draft07Compatible } = workflowSchema as Record<string, unknown>;
-    this.validate = this.ajv.compile(draft07Compatible);
+  constructor(validate: ValidateFn = precompiledValidate) {
+    this.validate = validate;
   }
 
   /**
@@ -47,7 +42,7 @@ export class SchemaValidator {
     const isValid = this.validate(flowDefinition);
     const errors = this.validate.errors || [];
 
-    const issues = this.mapErrorsToIssues(errors);
+    const issues = this.mapErrorsToIssues(errors, flowDefinition);
     const errorCount = issues.filter((i) => i.severity === 'error').length;
     const warningCount = issues.filter((i) => i.severity === 'warning').length;
 
@@ -63,9 +58,9 @@ export class SchemaValidator {
    * Validate a flow definition JSON string
    */
   validateFlowJson(jsonString: string): SchemaValidationResult {
+    let parsed: unknown;
     try {
-      const parsed = JSON.parse(jsonString);
-      return this.validateFlow(parsed);
+      parsed = JSON.parse(jsonString);
     } catch (error) {
       return {
         isValid: false,
@@ -82,16 +77,19 @@ export class SchemaValidator {
         warningCount: 0,
       };
     }
+    // Outside the try: a validator failure is not a JSON syntax problem and must not
+    // be reported as one.
+    return this.validateFlow(parsed);
   }
 
   /**
    * Map ajv errors to ValidationIssues
    */
-  private mapErrorsToIssues(errors: ErrorObject[]): ValidationIssue[] {
+  private mapErrorsToIssues(errors: ErrorObject[], data?: unknown): ValidationIssue[] {
     const issues: ValidationIssue[] = [];
     const seenPaths = new Set<string>();
 
-    for (const error of errors) {
+    for (const error of SchemaValidator.pruneErrors(errors)) {
       const path = error.instancePath || '/';
       const uniqueKey = `${path}:${error.keyword}:${error.message}`;
 
@@ -100,7 +98,7 @@ export class SchemaValidator {
       seenPaths.add(uniqueKey);
 
       const severity = this.getSeverity(error);
-      const message = this.formatErrorMessage(error);
+      const message = this.formatErrorMessage(error, data);
 
       issues.push({
         path: this.formatPath(path),
@@ -108,10 +106,35 @@ export class SchemaValidator {
         keyword: error.keyword,
         severity,
         schemaPath: error.schemaPath,
+        instancePath: error.instancePath || '',
       });
     }
 
     return issues;
+  }
+
+  /**
+   * Drop errors that only restate another one:
+   * - `if` failures wrap the real error raised inside the matching operation shape;
+   * - two `enum` failures at one location (an inherited list and a narrower one)
+   *   keep only the narrower list, which is the one that actually applies.
+   */
+  private static pruneErrors(errors: ErrorObject[]): ErrorObject[] {
+    const kept = errors.filter((e) => e.keyword !== 'if');
+
+    const narrowestEnum = new Map<string, number>();
+    for (const e of kept) {
+      if (e.keyword !== 'enum') continue;
+      const size = ((e.params as any).allowedValues || []).length;
+      const current = narrowestEnum.get(e.instancePath);
+      if (current === undefined || size < current) narrowestEnum.set(e.instancePath, size);
+    }
+
+    return kept.filter(
+      (e) =>
+        e.keyword !== 'enum' ||
+        ((e.params as any).allowedValues || []).length === narrowestEnum.get(e.instancePath)
+    );
   }
 
   /**
@@ -139,14 +162,23 @@ export class SchemaValidator {
   /**
    * Format error message for display
    */
-  private formatErrorMessage(error: ErrorObject): string {
+  private formatErrorMessage(error: ErrorObject, data?: unknown): string {
     switch (error.keyword) {
       case 'required':
         return `Missing required property: ${(error.params as any).missingProperty}`;
-      case 'type':
-        return `Expected type "${(error.params as any).type}", but got different type`;
-      case 'enum':
-        return `Value must be one of: ${((error.params as any).allowedValues || []).join(', ')}`;
+      case 'type': {
+        const actual = SchemaValidator.describeType(resolvePointer(data, error.instancePath));
+        return `Expected type "${(error.params as any).type}", but got ${actual}`;
+      }
+      case 'enum': {
+        const allowed: unknown[] = (error.params as any).allowedValues || [];
+        const actual = resolvePointer(data, error.instancePath);
+        const shown =
+          allowed.length > 12 ? `${allowed.slice(0, 12).join(', ')}, … (${allowed.length} values)` : allowed.join(', ');
+        return actual !== undefined
+          ? `${JSON.stringify(actual)} is not an allowed value. Expected one of: ${shown}`
+          : `Value must be one of: ${shown}`;
+      }
       case 'additionalProperties':
         return `Unknown property: ${(error.params as any).additionalProperty}`;
       case 'pattern':
@@ -161,6 +193,8 @@ export class SchemaValidator {
         return `String must be at least ${(error.params as any).limit} characters`;
       case 'maxLength':
         return `String must be at most ${(error.params as any).limit} characters`;
+      case 'const':
+        return `Value must be ${JSON.stringify((error.params as any).allowedValue)}`;
       case 'oneOf':
         return `Value does not match any of the expected schemas`;
       case 'allOf':
@@ -170,6 +204,13 @@ export class SchemaValidator {
       default:
         return error.message || 'Validation error';
     }
+  }
+
+  private static describeType(value: unknown): string {
+    if (value === undefined) return 'a different type';
+    if (value === null) return 'null';
+    if (Array.isArray(value)) return 'an array';
+    return `a ${typeof value}`;
   }
 
   /**
@@ -212,6 +253,7 @@ export class SchemaValidator {
 
       // Check for valid action types
       const validTypes = [
+        'OpenApiConnection', 'OpenApiConnectionWebhook', 'OpenApiConnectionNotification',
         'ApiConnection', 'ApiConnectionWebhook', 'Compose', 'Foreach',
         'Http', 'HttpWebhook', 'If', 'InitializeVariable', 'SetVariable',
         'Scope', 'Switch', 'Terminate', 'Until', 'Wait', 'Workflow',
@@ -298,6 +340,17 @@ export class SchemaValidator {
   static getSeverityColor(severity: 'error' | 'warning'): string {
     return severity === 'error' ? 'var(--color-danger)' : 'var(--color-warning)';
   }
+}
+
+/** Resolve an Ajv instancePath (JSON pointer) against the validated value. */
+export function resolvePointer(data: unknown, pointer: string): unknown {
+  if (!pointer) return data;
+  let current: any = data;
+  for (const raw of pointer.split('/').slice(1)) {
+    if (current === null || typeof current !== 'object') return undefined;
+    current = current[raw.replace(/~1/g, '/').replace(/~0/g, '~')];
+  }
+  return current;
 }
 
 export default SchemaValidator;

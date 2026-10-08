@@ -213,6 +213,8 @@ export interface IAnalysisConfigExport {
   version: string;  // Schema version for future compatibility
   exportDate: string;  // ISO timestamp
   config: IAnalysisConfig;
+  /** Global placeholder variables ({{KEY}} -> values), included when any are set. */
+  globalPlaceholders?: Record<string, string[]>;
 }
 
 // ============================================================================

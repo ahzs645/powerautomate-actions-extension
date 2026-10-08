@@ -4,9 +4,11 @@ import './index.css';
 import App from './App';
 import reportWebVitals from './reportWebVitals';
 import { Mode } from './models';
-import { initializeIcons } from '@fluentui/react';
+import { registerPopupIcons } from './theme/popupIcons';
 
-initializeIcons();
+// Only the glyphs the popup renders; initializeIcons() would pull in the
+// whole MDL2 map (~1,900 names) for a few dozen icons.
+registerPopupIcons();
 
 const root = ReactDOM.createRoot(
   document.getElementById('root') as HTMLElement

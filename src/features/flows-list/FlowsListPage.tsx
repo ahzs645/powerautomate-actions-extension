@@ -15,9 +15,9 @@ import { SearchBox } from '@fluentui/react/lib/SearchBox';
 import { Stack } from '@fluentui/react/lib/Stack';
 import { mergeStyles } from '@fluentui/react/lib/Styling';
 import { Text } from '@fluentui/react/lib/Text';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { LoaderModal } from '../../components/shared/LoaderModal';
-import { Messages } from '../../components/shared/Messages';
+import { StatusMessages } from '../flow-editor/useStatusMessages';
 import { OwnerBadge, StateBadge } from './FlowBadges';
 import {
   ANY_STATE,
@@ -65,9 +65,15 @@ export const FlowsListPage: React.FC = () => {
     downloadFlow,
     downloadFlowsAsZip,
     openInEditor,
+    envId,
+    environmentName,
     messages,
-    onDismissed,
+    dismissMessage,
   } = useFlowsList();
+
+  useEffect(() => {
+    document.title = `Flows — ${environmentName || envId || 'Power Automate'}`;
+  }, [environmentName, envId]);
 
   const [search, setSearch] = useState<string>(DEFAULT_FILTERS.search);
   const [owner, setOwner] = useState<OwnerTab>(DEFAULT_FILTERS.owner);
@@ -201,7 +207,7 @@ export const FlowsListPage: React.FC = () => {
   return (
     <Stack styles={{ root: { flex: 1, overflow: 'hidden', backgroundColor: 'var(--color-bg)' } }}>
       <CommandBar items={commandBarItems} />
-      <Messages items={messages} onDismissed={onDismissed} />
+      <StatusMessages messages={messages} onDismiss={dismissMessage} />
 
       {progress && (
         <ProgressIndicator

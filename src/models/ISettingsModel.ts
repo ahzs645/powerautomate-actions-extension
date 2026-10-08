@@ -8,6 +8,10 @@ export interface ISettingsModel {
   isClassicPowerAutomatePage?: boolean | null;
   isModernPowerAutomatePage?: boolean | null;
   maximumRecordingTimeMinutes?: number | null;
+  /**
+   * @deprecated Nothing reads it: the search bar is always shown. Kept so
+   * stored settings from older versions still type-check.
+   */
   showActionSearchBar?: boolean;
   recordingStartTime?: number | null;
   showPredefinedActions?: boolean;
@@ -35,6 +39,15 @@ export interface ISettingsModel {
   showUtilityParseJsonActions?: boolean;
   /** Scrub tenant metadata and secrets when exporting favorites. */
   sanitizeOnExport?: boolean;
+  loadDefaultPredefinedActions?: boolean;
+  /**
+   * Master switch read by the background worker and content scripts as
+   * `appSettings.extensionEnabled`. Absent means on. When off: no token
+   * capture, no recording and no designer button.
+   */
+  extensionEnabled?: boolean;
+  /** Show the "Edit JSON" button in the flow designer command bar. Absent means on. */
+  showDesignerButton?: boolean;
 }
 
 export const defaultSettings: ISettingsModel = {
@@ -58,4 +71,7 @@ export const defaultSettings: ISettingsModel = {
   includeUnsafeUtilityActions: false,
   showUtilityParseJsonActions: false,
   sanitizeOnExport: true,
+  loadDefaultPredefinedActions: true,
+  extensionEnabled: true,
+  showDesignerButton: true,
 };
