@@ -4,10 +4,10 @@ import { IActionModel } from "../models";
 import { IUtilityAction } from "../models/IUtilityCatalog";
 import { IUtilityFunctionConfig, utilityActionsService } from "../services/UtilityActionsService";
 import UtilityActionForm from "./UtilityActionForm";
-
-const ALL_CATEGORIES = '__all__';
 import { PlaceholderService } from "../services/PlaceholderService";
 import CopyWithOptionsModal from "./CopyWithOptionsModal";
+
+const ALL_CATEGORIES = '__all__';
 
 export interface IPredefinedActionsListProps {
     actions: IActionModel[];
