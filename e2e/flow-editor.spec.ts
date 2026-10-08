@@ -226,22 +226,26 @@ test('download JSON produces a file with the flow name', async () => {
 });
 
 /**
- * TEST 8: Popup tab switching between Recorded Requests, Copied Actions, Favorites.
+ * TEST 8: Popup tab switching between Recorded, Copied, Favorites and Library.
  */
 test('popup pivot tabs switch between action lists', async () => {
   const popup = await openPopup(context, extensionId);
 
-  const recordedTab = popup.getByRole('tab', { name: 'Recorded Requests' });
+  const recordedTab = popup.getByRole('tab', { name: /^Recorded/ });
   await expect(recordedTab).toBeVisible();
   await expect(recordedTab).toHaveAttribute('aria-selected', 'true');
 
-  const copiedTab = popup.getByRole('tab', { name: 'Copied Actions' });
+  const copiedTab = popup.getByRole('tab', { name: /^Copied/ });
   await copiedTab.click();
   await expect(copiedTab).toHaveAttribute('aria-selected', 'true');
 
-  const favoritesTab = popup.getByRole('tab', { name: 'Favorites' });
+  const favoritesTab = popup.getByRole('tab', { name: /^Favorites/ });
   await favoritesTab.click();
   await expect(favoritesTab).toHaveAttribute('aria-selected', 'true');
+
+  const libraryTab = popup.getByRole('tab', { name: /^Library/ });
+  await libraryTab.click();
+  await expect(libraryTab).toHaveAttribute('aria-selected', 'true');
 
   await popup.close();
 });
