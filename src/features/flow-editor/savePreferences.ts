@@ -45,3 +45,53 @@ export function readPreference(key: string): string | null {
 export function writePreference(key: string, value: string) {
   write(() => window.localStorage, key, value);
 }
+
+// --- Save method (per environment) -------------------------------------------
+// Stored in chrome.storage.local under `flowEditorSaveMode:<envId>` so it is
+// shared by every editor tab; localStorage is the fallback when the extension
+// storage API is unavailable or fails.
+
+export type StoredSaveMode = 'flow' | 'dataverse';
+
+export const saveModeKey = (envId: string) => `flowEditorSaveMode:${envId}`;
+
+function chromeLocalStorage(): chrome.storage.LocalStorageArea | undefined {
+  try {
+    return typeof chrome !== 'undefined' && chrome?.storage?.local ? chrome.storage.local : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+const asSaveMode = (value: unknown): StoredSaveMode => (value === 'dataverse' ? 'dataverse' : 'flow');
+
+/** The save method chosen for an environment; 'flow' unless the user picked Dataverse. */
+export async function readSaveMode(envId: string): Promise<StoredSaveMode> {
+  const key = saveModeKey(envId);
+  const area = chromeLocalStorage();
+  if (area) {
+    try {
+      const items = await area.get(key);
+      if (items && key in items) return asSaveMode(items[key]);
+    } catch {
+      // fall through to localStorage
+    }
+  }
+  return asSaveMode(read(() => window.localStorage, key));
+}
+
+export async function writeSaveMode(envId: string, mode: StoredSaveMode): Promise<void> {
+  const key = saveModeKey(envId);
+  const area = chromeLocalStorage();
+  if (area) {
+    try {
+      await area.set({ [key]: mode });
+      // Keep the fallback in step so a later failing chrome.storage read agrees.
+      write(() => window.localStorage, key, mode);
+      return;
+    } catch {
+      // fall through to localStorage
+    }
+  }
+  write(() => window.localStorage, key, mode);
+}

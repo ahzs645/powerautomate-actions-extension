@@ -1,12 +1,14 @@
 // Reading and writing a flow, and the text the editor shows for it.
 //
 // Saving goes through a FlowSaveStrategy so a second backend can be plugged in
-// without touching the editor UI: the Flow service (api.flow.microsoft.com /
-// *.api.powerplatform.com) is the only implementation today; a Dataverse
-// strategy (solution-aware flows stored in the `workflow` table) implements the
-// same two calls and is returned from selectSaveStrategy().
+// without touching the editor UI. The Flow service (api.flow.microsoft.com /
+// *.api.powerplatform.com) is the default. The Dataverse strategy
+// (dataverseSaveStrategy.ts: solution-aware flows stored in the `workflow`
+// table) is experimental and only chosen when the user opted in for the
+// environment AND the flow is a solution flow AND a Dataverse sign-in exists.
 
 import { IApiProvider } from '../../services/ApiProvider';
+import { dataverseSaveStrategy } from './dataverseSaveStrategy';
 
 export const EDITOR_SCHEMA_URI = 'https://power-automate-toolkit.local/flow-editor.json#';
 
@@ -21,6 +23,26 @@ export interface FlowDocument {
 export interface FlowTarget {
   envId: string;
   flowId: string;
+  /** Dataverse `workflowid` of a solution flow (flow GET `properties.workflowEntityId`). */
+  workflowEntityId?: string;
+  /**
+   * Dataverse row version (`@odata.etag`) the editor's text is based on. When
+   * known, a Dataverse save is conditional on it, so edits made elsewhere since
+   * then are detected instead of overwritten.
+   */
+  dataverseEtag?: string;
+}
+
+/** A saved document, plus the Dataverse row version after the save when known. */
+export interface SavedFlowDocument extends FlowDocument {
+  dataverseEtag?: string;
+}
+
+/** Which backend Save / Publish write through. */
+export type SaveMode = 'flow' | 'dataverse';
+
+export function isSaveMode(value: unknown): value is SaveMode {
+  return value === 'flow' || value === 'dataverse';
 }
 
 /**
@@ -33,8 +55,10 @@ export interface FlowTarget {
  */
 export interface FlowSaveStrategy {
   /** Short identifier, for logs and diagnostics. */
-  readonly id: string;
-  saveDraft(api: IApiProvider, target: FlowTarget, doc: FlowDocument): Promise<FlowDocument>;
+  readonly id: SaveMode;
+  /** How the method is named in the UI ("…through the Flow service"). */
+  readonly label: string;
+  saveDraft(api: IApiProvider, target: FlowTarget, doc: FlowDocument): Promise<SavedFlowDocument>;
   publish(api: IApiProvider, target: FlowTarget): Promise<void>;
 }
 
@@ -78,7 +102,8 @@ export function documentFromFlowResponse(flow: any): FlowDocument {
 
 /** Save and publish through the Flow service's REST API. */
 export const flowServiceSaveStrategy: FlowSaveStrategy = {
-  id: 'flow-service',
+  id: 'flow',
+  label: 'the Flow service',
 
   async saveDraft(api, target, doc) {
     const response = await api.patch(getFlowUrl(target.envId, target.flowId, api.isPowerPlatformApi), {
@@ -102,12 +127,56 @@ export const flowServiceSaveStrategy: FlowSaveStrategy = {
   },
 };
 
+export type DataverseAvailability = { available: true } | { available: false; reason: string };
+
 /**
- * Pick the strategy for a flow. Extension point: return a Dataverse strategy here
- * (e.g. when the session holds a Dataverse token for the environment) and the
- * editor's Save / Publish use it unchanged.
+ * Whether this flow can be written through Dataverse right now: it must be a
+ * solution flow (has a workflow id) and the session must hold an unexpired
+ * Dataverse token. The reason is shown as the menu item's tooltip.
  */
-export function selectSaveStrategy(_api: IApiProvider, _target: FlowTarget): FlowSaveStrategy {
+export function dataverseAvailability(
+  api: IApiProvider,
+  workflowEntityId: string | undefined | null,
+  now: number = Date.now()
+): DataverseAvailability {
+  if (!workflowEntityId) {
+    return { available: false, reason: 'Only solution flows can be saved through Dataverse. This flow is not in a solution.' };
+  }
+  if (typeof api.request !== 'function') {
+    return { available: false, reason: 'Dataverse requests are not supported on this page.' };
+  }
+  if (!api.endpoints?.hasDataverse) {
+    return {
+      available: false,
+      reason:
+        'No Dataverse sign-in captured yet. Open this flow in Power Automate (make.powerautomate.com) ' +
+        'and reload that tab so the toolkit can pick it up.',
+    };
+  }
+  const expiresAt = api.endpoints.expiresAt?.dataverse; // epoch ms
+  if (expiresAt && expiresAt <= now) {
+    return { available: false, reason: 'The Dataverse sign-in has expired. Reload the Power Automate tab to refresh it.' };
+  }
+  return { available: true };
+}
+
+export function strategyFor(mode: SaveMode): FlowSaveStrategy {
+  return mode === 'dataverse' ? dataverseSaveStrategy : flowServiceSaveStrategy;
+}
+
+/**
+ * Pick the strategy for a flow. The Flow service unless the user chose Dataverse
+ * for this environment (`preference`) and Dataverse is actually usable for the
+ * flow; a Dataverse preference never applies to a flow it cannot handle.
+ */
+export function selectSaveStrategy(
+  api: IApiProvider,
+  target: FlowTarget,
+  preference: SaveMode = 'flow'
+): FlowSaveStrategy {
+  if (preference === 'dataverse' && dataverseAvailability(api, target.workflowEntityId).available) {
+    return dataverseSaveStrategy;
+  }
   return flowServiceSaveStrategy;
 }
 

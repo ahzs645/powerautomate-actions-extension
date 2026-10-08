@@ -70,6 +70,24 @@ const chipClass = mergeStyles({
   },
 });
 
+const subtitleRowClass = mergeStyles({ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 });
+
+/** Neutral pill: a fact about the flow, not a warning. */
+const badgeClass = mergeStyles({
+  flex: '0 0 auto',
+  display: 'inline-flex',
+  alignItems: 'center',
+  padding: '0 6px',
+  borderRadius: 'var(--radius-sm)',
+  border: '1px solid var(--color-stroke)',
+  backgroundColor: 'var(--color-bg-subtle)',
+  color: 'var(--color-fg-secondary)',
+  fontSize: 'var(--font-size-sm)',
+  lineHeight: '16px',
+  fontWeight: 'var(--font-weight-semibold)',
+  whiteSpace: 'nowrap',
+});
+
 const commandsClass = mergeStyles({ flex: '1 1 auto', minWidth: 0 });
 
 /**
@@ -99,6 +117,8 @@ export interface FlowEditorHeaderProps {
   /** Second line under the name: environment name and/or id. */
   environmentLabel?: string;
   environmentTitle?: string;
+  /** Small badges after the environment, e.g. "Solution flow". */
+  badges?: Array<{ key: string; text: string; title?: string }>;
   isDirty: boolean;
   items: ICommandBarItemProps[];
   overflowItems: ICommandBarItemProps[];
@@ -114,6 +134,7 @@ export const FlowEditorHeader: React.FC<FlowEditorHeaderProps> = ({
   flowName,
   environmentLabel,
   environmentTitle,
+  badges,
   isDirty,
   items,
   overflowItems,
@@ -131,10 +152,19 @@ export const FlowEditorHeader: React.FC<FlowEditorHeaderProps> = ({
           </span>
         )}
       </div>
-      {environmentLabel && (
-        <span className={envClass} title={environmentTitle || environmentLabel}>
-          {environmentLabel}
-        </span>
+      {(environmentLabel || !!badges?.length) && (
+        <div className={subtitleRowClass}>
+          {environmentLabel && (
+            <span className={envClass} title={environmentTitle || environmentLabel}>
+              {environmentLabel}
+            </span>
+          )}
+          {badges?.map((badge) => (
+            <span key={badge.key} className={badgeClass} title={badge.title}>
+              {badge.text}
+            </span>
+          ))}
+        </div>
       )}
     </div>
     <div className={commandsClass}>

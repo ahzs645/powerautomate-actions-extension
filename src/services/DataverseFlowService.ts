@@ -9,7 +9,9 @@
  * should keep the Flow API save path as the fallback, and must fall back when
  * `MissingConnectionReferenceError` is thrown.
  *
- * Not wired into the editor UI yet.
+ * Used by the flow editor's experimental Dataverse save method
+ * (src/features/flow-editor/dataverseSaveStrategy.ts), which is opt-in per
+ * environment and falls back to the Flow API as described there.
  */
 import { ApiError, ApiRawResponse, ApiRequest } from './ApiProvider';
 
@@ -50,6 +52,12 @@ export interface SaveDraftInput {
     environmentName?: string;
     /** `@odata.etag` from getWorkflow. Fetched first when missing (never `*`). */
     etag?: string;
+    /**
+     * The row's current parsed `clientdata` (DataverseWorkflow.clientdataParsed).
+     * Fields the editor does not manage (e.g. `templateName`, unknown properties)
+     * are carried over instead of being dropped by the write.
+     */
+    existingClientData?: any;
 }
 
 export class DataverseFlowError extends Error {
@@ -151,11 +159,18 @@ export function toDataverseConnectionReferences(refs: Record<string, any> | unde
     return out;
 }
 
-/** The `clientdata` string Dataverse stores for a modern cloud flow. */
-export function buildClientData(definition: any, connectionReferences: DataverseConnectionReferences, displayName?: string): string {
-    const properties: Record<string, any> = { connectionReferences, definition };
+/**
+ * The `clientdata` string Dataverse stores for a modern cloud flow. With `base`
+ * (the row's current parsed clientdata), every other top-level field and
+ * property is kept; only definition, connectionReferences (and displayName when
+ * given) are replaced.
+ */
+export function buildClientData(definition: any, connectionReferences: DataverseConnectionReferences, displayName?: string, base?: any): string {
+    const baseObject = base && typeof base === 'object' && !Array.isArray(base) ? base : {};
+    const baseProperties = baseObject.properties && typeof baseObject.properties === 'object' ? baseObject.properties : {};
+    const properties: Record<string, any> = { ...baseProperties, connectionReferences, definition };
     if (displayName) properties.displayName = displayName;
-    return JSON.stringify({ properties, schemaVersion: '1.0.0.0' });
+    return JSON.stringify({ ...baseObject, properties, schemaVersion: baseObject.schemaVersion || '1.0.0.0' });
 }
 
 /** ParameterXml for the PublishXml action, e.g. <importexportxml><workflows><workflow>{id}</workflow></workflows></importexportxml> */
@@ -241,7 +256,7 @@ export class DataverseFlowService {
             throw new DataverseFlowError('Dataverse did not return an ETag for the flow; refusing to save without concurrency protection.');
         }
 
-        const clientdata = buildClientData(input.definition, connectionReferences, input.displayName);
+        const clientdata = buildClientData(input.definition, connectionReferences, input.displayName, input.existingClientData);
         let response: ApiRawResponse;
         try {
             response = await this.http.request<ApiRawResponse>({

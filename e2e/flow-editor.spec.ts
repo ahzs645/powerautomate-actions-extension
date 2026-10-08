@@ -157,9 +157,34 @@ test('command bar buttons are present after flow loads', async () => {
 
   // The rest lives in the overflow menu.
   await editor.getByRole('menuitem', { name: 'More commands' }).or(editor.getByRole('button', { name: 'More commands' })).first().click();
-  for (const name of ['Download JSON', 'Reconnect', 'Analyze solution (.zip)']) {
+  for (const name of ['Download JSON', 'Reconnect', 'Analyze solution (.zip)', 'Save method', 'Copy diagnostics']) {
     await expect(editor.getByRole('menuitem', { name })).toBeVisible();
   }
+
+  await editor.close();
+});
+
+/**
+ * TEST 5b: A solution flow shows its badge; the Save method submenu defaults to
+ * the Flow service and keeps Dataverse disabled without a Dataverse sign-in.
+ */
+test('solution flow shows a badge and the Save method submenu', async () => {
+  const solutionResponse = {
+    ...FLOW_A.response,
+    properties: { ...FLOW_A.response.properties, workflowEntityId: 'a1b2c3d4-0000-1111-2222-333344445555' },
+  };
+  const editor = await openAndLoadFlow(FLOW_A.id, FLOW_A.name, solutionResponse);
+
+  await expect(editor.getByText('Solution flow', { exact: true })).toBeVisible();
+
+  await editor.getByRole('menuitem', { name: 'More commands' }).or(editor.getByRole('button', { name: 'More commands' })).first().click();
+  await editor.getByRole('menuitem', { name: 'Save method' }).hover();
+  const flowService = editor.getByRole('menuitemcheckbox', { name: 'Flow service (default)' });
+  const dataverse = editor.getByRole('menuitemcheckbox', { name: /Dataverse/ });
+  await expect(flowService).toBeVisible();
+  await expect(flowService).toHaveAttribute('aria-checked', 'true');
+  await expect(dataverse).toHaveAttribute('aria-disabled', 'true');
+  await expect(dataverse).toHaveAttribute('title', /No Dataverse sign-in/);
 
   await editor.close();
 });
