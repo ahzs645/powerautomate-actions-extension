@@ -4,7 +4,7 @@ import { ActionType, IDataChromeMessage, AppElement, ICommunicationChromeMessage
 import { IActionModel } from './models/IActionModel';
 import { ISettingsModel, ThemeMode } from './models/ISettingsModel';
 import { StorageService } from './services/StorageService';
-import { ExtensionCommunicationService, PredefinedActionsService, designerCopyService } from './services';
+import { ExtensionCommunicationService, PredefinedActionsService, PlaceholderService, designerCopyService } from './services';
 import { utilityActionsService } from './services/UtilityActionsService';
 import { DefaultButton, Icon, MessageBar, MessageBarType, Pivot, PivotItem, ThemeProvider } from '@fluentui/react';
 import { getFluentTheme, loadFluentTheme, resolveTheme } from './theme/fluentTheme';
@@ -17,6 +17,7 @@ function App(initialState?: IInitialState | undefined) {
   const storageService = useMemo(() => { return new StorageService(); }, []);
   const communicationService = useMemo(() => { return new ExtensionCommunicationService(); }, []);
   const predefinedActionsService = useMemo(() => { return new PredefinedActionsService(); }, []);
+  const placeholderService = useMemo(() => new PlaceholderService(), []);
   const [isRecording, setIsRecording] = useState<boolean>(initialState?.isRecording || false);
   const [isPowerAutomatePage, setIsPowerAutomatePage] = useState<boolean>(initialState?.isPowerAutomatePage || false);
   const [isRecordingPage, setIsRecordingPage] = useState<boolean>(initialState?.isRecordingPage || false);
@@ -217,6 +218,42 @@ function App(initialState?: IInitialState | undefined) {
     // opt-in), so any settings change has to re-materialize the list.
     loadPredefinedActions(updatedSettings);
   }, [loadPredefinedActions]);
+
+  // Single-action copy used by the "copy with options" dialog once the user has
+  // filled in the action's {{PLACEHOLDER}} values.
+  const handleCopyPredefinedAction = useCallback((action: IActionModel) => {
+    const unresolved = utilityActionsService.hasUnresolvedTokens(action);
+    if (isV3PowerAutomateEditor) {
+      communicationService.sendRequest(
+        { actionType: ActionType.SetSelectedActionsIntoClipboardV3, message: [action] },
+        AppElement.ReactApp,
+        AppElement.Content,
+        (response) => {
+          if (!response) {
+            setNotificationMessage("Could not build the clipboard payload for this action");
+            setIsSuccessNotification(false);
+            return;
+          }
+          navigator.clipboard.writeText(response);
+          if (unresolved) {
+            setNotificationMessage("Copied. The action still uses placeholder URLs - set the Function App URL in Settings.");
+            setIsSuccessNotification(false);
+            return;
+          }
+          setNotificationMessage("Action copied - paste it in the Power Automate editor");
+          setIsSuccessNotification(true);
+        }
+      );
+    } else {
+      communicationService.sendRequest(
+        { actionType: ActionType.CopyAction, message: [action] },
+        AppElement.ReactApp,
+        AppElement.Content
+      );
+      setNotificationMessage("Action copied - paste it in the Power Automate editor");
+      setIsSuccessNotification(true);
+    }
+  }, [communicationService, isV3PowerAutomateEditor]);
 
   const refreshPredefinedActions = useCallback(async () => {
     if (!settings) { return; }
@@ -830,6 +867,7 @@ function App(initialState?: IInitialState | undefined) {
           <Settings 
             storageService={storageService} 
             onSettingsChange={onSettingsChanged}
+            placeholderService={placeholderService}
             onFavoritesImported={async () => {
               const favorites = await storageService.getFavoriteActions();
               setFavoriteActions(favorites);
@@ -866,6 +904,7 @@ function App(initialState?: IInitialState | undefined) {
               toggleFavoriteFunc={toggleFavorite}
               searchTerm={searchTerm}
               onSearchChange={setSearchTerm}
+              placeholderService={placeholderService}
             />
           </PivotItem>}
           {<PivotItem
@@ -888,6 +927,7 @@ function App(initialState?: IInitialState | undefined) {
               toggleFavoriteFunc={toggleFavorite}
               searchTerm={searchTerm}
               onSearchChange={setSearchTerm}
+              placeholderService={placeholderService}
             />
           </PivotItem>}
           {<PivotItem
@@ -902,6 +942,7 @@ function App(initialState?: IInitialState | undefined) {
               showButton={false}
               searchTerm={searchTerm}
               onSearchChange={setSearchTerm}
+              placeholderService={placeholderService}
             />
           </PivotItem>}
           {(settings?.showPredefinedActions || settings?.showUtilityActions) && (
@@ -912,6 +953,8 @@ function App(initialState?: IInitialState | undefined) {
                 onRefresh={refreshPredefinedActions}
                 changeSelectionFunc={changePredefinedActionSelection}
                 toggleFavoriteFunc={toggleFavorite}
+                onCopyAction={handleCopyPredefinedAction}
+                placeholderService={placeholderService}
                 searchTerm={searchTerm}
                 onSearchChange={setSearchTerm}
                 utilityConfig={utilityConfig}

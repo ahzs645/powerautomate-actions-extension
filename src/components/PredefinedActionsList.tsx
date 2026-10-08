@@ -6,6 +6,8 @@ import { IUtilityFunctionConfig, utilityActionsService } from "../services/Utili
 import UtilityActionForm from "./UtilityActionForm";
 
 const ALL_CATEGORIES = '__all__';
+import { PlaceholderService } from "../services/PlaceholderService";
+import CopyWithOptionsModal from "./CopyWithOptionsModal";
 
 export interface IPredefinedActionsListProps {
     actions: IActionModel[];
@@ -13,6 +15,8 @@ export interface IPredefinedActionsListProps {
     onRefresh?: () => void;
     changeSelectionFunc?: (action: IActionModel) => void;
     toggleFavoriteFunc?: (action: IActionModel) => void;
+    onCopyAction?: (action: IActionModel) => void;
+    placeholderService: PlaceholderService;
     searchTerm: string;
     onSearchChange: (searchTerm: string) => void;
     /** Current function configuration, used when generating a configured action. */
@@ -26,6 +30,7 @@ const PredefinedActionsList: React.FC<IPredefinedActionsListProps> = (props) => 
     const [isPanelOpen, setIsPanelOpen] = useState(false);
     const [categoryFilter, setCategoryFilter] = useState<string>(ALL_CATEGORIES);
     const [configuringAction, setConfiguringAction] = useState<IUtilityAction | null>(null);
+    const [actionForCopyWithOptions, setActionForCopyWithOptions] = useState<IActionModel | null>(null);
 
     const showActionDetails = useCallback((action: IActionModel) => {
         setSelectedActionForDetails(action);
@@ -159,8 +164,21 @@ const PredefinedActionsList: React.FC<IPredefinedActionsListProps> = (props) => 
         return utilityActionsService.getAction(action.id.replace('utility-', ''));
     }, []);
 
+    const handleCopyWithOptions = useCallback((filled: IActionModel) => {
+        setActionForCopyWithOptions(null);
+        props.onCopyAction?.(filled);
+    }, [props]);
+
+    const handleSaveAsFavorite = useCallback((filled: IActionModel) => {
+        props.toggleFavoriteFunc?.({ ...filled, isFavorite: false });
+    }, [props]);
+
     const renderAction = useCallback((action: IActionModel) => {
         const catalogAction = getCatalogAction(action);
+        // Only {{UPPER_CASE}} placeholders warrant the dialog. Expressions such as
+        // @outputs('...') are already-wired dynamic content (the utility recipes
+        // are full of them) and paste fine as they are.
+        const hasPlaceholders = props.placeholderService.extractPlaceholders(action.actionJson || '').length > 0;
 
         return (
             <div className='App-Action-Row' key={action.id} title={action.description || action.url}>
@@ -183,6 +201,15 @@ const PredefinedActionsList: React.FC<IPredefinedActionsListProps> = (props) => 
                     onClick={() => showActionDetails(action)}
                     title="Show Action Details"
                 ></Icon>
+                {hasPlaceholders && (
+                    <Icon
+                        className='App-Action-Info'
+                        iconName='VariableGroup'
+                        onClick={() => setActionForCopyWithOptions(action)}
+                        title="Copy with options (fill placeholders)"
+                        style={{ color: 'var(--color-brand)' }}
+                    ></Icon>
+                )}
                 {props.toggleFavoriteFunc && (
                     <Icon
                         className='App-Action-Favorite'
@@ -271,7 +298,7 @@ const PredefinedActionsList: React.FC<IPredefinedActionsListProps> = (props) => 
                 <TextField
                     placeholder="Search by title or description..."
                     value={props.searchTerm}
-                    onChange={(event, newValue) => props.onSearchChange(newValue || '')}
+                    onChange={(_event, newValue) => props.onSearchChange(newValue || '')}
                     styles={{
                         root: { flex: 1 },
                         field: { fontSize: '14px' }
@@ -329,8 +356,8 @@ const PredefinedActionsList: React.FC<IPredefinedActionsListProps> = (props) => 
                             <div style={{
                                 padding: '6px 20px',
                                 backgroundColor: 'var(--color-bg-subtle)',
-                                borderTop: '1px solid #edebe9',
-                                borderBottom: '1px solid #edebe9',
+                                borderTop: '1px solid var(--color-stroke-subtle)',
+                                borderBottom: '1px solid var(--color-stroke-subtle)',
                                 fontSize: '11px',
                                 fontWeight: 600,
                                 textTransform: 'uppercase',
@@ -344,6 +371,15 @@ const PredefinedActionsList: React.FC<IPredefinedActionsListProps> = (props) => 
                     ))
                 )}
             </div>
+            {actionForCopyWithOptions && (
+                <CopyWithOptionsModal
+                    action={actionForCopyWithOptions}
+                    placeholderService={props.placeholderService}
+                    onCopy={handleCopyWithOptions}
+                    onSaveAsFavorite={handleSaveAsFavorite}
+                    onDismiss={() => setActionForCopyWithOptions(null)}
+                />
+            )}
             {renderActionDetails()}
             <UtilityActionForm
                 action={configuringAction}

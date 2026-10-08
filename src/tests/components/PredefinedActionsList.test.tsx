@@ -3,6 +3,11 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import PredefinedActionsList from '../../components/PredefinedActionsList';
 import { IActionModel } from '../../models';
+import { PlaceholderService } from '../../services/PlaceholderService';
+
+// The real service: the list only calls its pure parsing helpers, and CRA's
+// resetMocks would wipe a jest.fn() mock's return values between tests.
+const mockPlaceholderService = new PlaceholderService();
 
 describe('PredefinedActionsList', () => {
   const mockActions: IActionModel[] = [
@@ -37,6 +42,7 @@ describe('PredefinedActionsList', () => {
         isLoading={true}
         searchTerm=""
         onSearchChange={() => {}}
+        placeholderService={mockPlaceholderService}
       />
     );
     expect(screen.getByText('Loading predefined actions...')).toBeInTheDocument();
@@ -49,6 +55,7 @@ describe('PredefinedActionsList', () => {
         isLoading={false}
         searchTerm=""
         onSearchChange={() => {}}
+        placeholderService={mockPlaceholderService}
       />
     );
     expect(screen.getByText('No predefined actions available')).toBeInTheDocument();
@@ -61,6 +68,7 @@ describe('PredefinedActionsList', () => {
         isLoading={false}
         searchTerm=""
         onSearchChange={() => {}}
+        placeholderService={mockPlaceholderService}
       />
     );
     expect(screen.getByText('Get User Profile')).toBeInTheDocument();
@@ -74,6 +82,7 @@ describe('PredefinedActionsList', () => {
         isLoading={false}
         searchTerm=""
         onSearchChange={() => {}}
+        placeholderService={mockPlaceholderService}
       />
     );
     expect(screen.getByText('GET')).toBeInTheDocument();
@@ -89,6 +98,7 @@ describe('PredefinedActionsList', () => {
         changeSelectionFunc={mockChangeSelection}
         searchTerm=""
         onSearchChange={() => {}}
+        placeholderService={mockPlaceholderService}
       />
     );
     
@@ -106,6 +116,7 @@ describe('PredefinedActionsList', () => {
         toggleFavoriteFunc={mockToggleFavorite}
         searchTerm=""
         onSearchChange={() => {}}
+        placeholderService={mockPlaceholderService}
       />
     );
     
@@ -121,6 +132,7 @@ describe('PredefinedActionsList', () => {
         isLoading={false}
         searchTerm=""
         onSearchChange={() => {}}
+        placeholderService={mockPlaceholderService}
       />
     );
     
@@ -139,6 +151,7 @@ describe('PredefinedActionsList', () => {
         isLoading={false}
         searchTerm=""
         onSearchChange={() => {}}
+        placeholderService={mockPlaceholderService}
       />
     );
     expect(screen.getByText('Get User Profile')).toBeInTheDocument();
@@ -150,6 +163,7 @@ describe('PredefinedActionsList', () => {
         isLoading={false}
         searchTerm="Email"
         onSearchChange={() => {}}
+        placeholderService={mockPlaceholderService}
       />
     );
     expect(screen.queryByText('Get User Profile')).not.toBeInTheDocument();
@@ -163,6 +177,7 @@ describe('PredefinedActionsList', () => {
         isLoading={false}
         searchTerm=""
         onSearchChange={() => {}}
+        placeholderService={mockPlaceholderService}
       />
     );
     expect(screen.getByText('Select')).toBeInTheDocument();
@@ -179,8 +194,47 @@ describe('PredefinedActionsList', () => {
         toggleFavoriteFunc={() => {}}
         searchTerm=""
         onSearchChange={() => {}}
+        placeholderService={mockPlaceholderService}
       />
     );
     expect(screen.getByText('Fav')).toBeInTheDocument();
+  });
+
+  describe('copy with options', () => {
+    const buildAction = (id: string, title: string, uri: string): IActionModel => ({
+      id,
+      title,
+      url: uri,
+      method: 'POST',
+      icon: 'https://example.com/icon.png',
+      actionJson: JSON.stringify({ operationDefinition: { inputs: { uri } } }),
+      isSelected: false,
+      isFavorite: false,
+    });
+
+    const renderList = (actions: IActionModel[]) => render(
+      <PredefinedActionsList
+        actions={actions}
+        isLoading={false}
+        searchTerm=""
+        onSearchChange={() => {}}
+        placeholderService={mockPlaceholderService}
+      />
+    );
+
+    it('offers the button for actions with {{UPPER_CASE}} placeholders', () => {
+      renderList([buildAction('p', 'Break inheritance', '{{SITE_URL}}/_api/web/lists/getbytitle(\'{{LIST_TITLE}}\')')]);
+      expect(screen.getByTitle('Copy with options (fill placeholders)')).toBeInTheDocument();
+    });
+
+    it('does not offer it for actions that only contain expressions', () => {
+      renderList([buildAction('e', 'Merge PDFs', "@{outputs('Compose')}/api/merge_pdf_fitz")]);
+      expect(screen.queryByTitle('Copy with options (fill placeholders)')).not.toBeInTheDocument();
+    });
+
+    it('does not offer it for lower-case utility tokens', () => {
+      renderList([buildAction('u', 'Utility', '{{functionBaseUrl}}/api/merge_pdf_fitz?code={{functionKey}}')]);
+      expect(screen.queryByTitle('Copy with options (fill placeholders)')).not.toBeInTheDocument();
+    });
   });
 });

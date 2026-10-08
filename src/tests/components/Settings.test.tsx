@@ -481,3 +481,79 @@ describe('Settings handleFileChange (favorites import)', () => {
     expect(mockStorageService.setFavoriteActions).not.toHaveBeenCalled();
   });
 });
+
+describe('Settings global placeholder variables', () => {
+  let store: Record<string, any>;
+  const originalText = (File.prototype as any).text;
+
+  beforeAll(() => {
+    if (typeof originalText !== 'function') {
+      (File.prototype as any).text = function (this: File) {
+        return new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = () => reject(reader.error);
+          reader.readAsText(this);
+        });
+      };
+    }
+  });
+  afterAll(() => {
+    (File.prototype as any).text = originalText;
+  });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    store = {};
+    (global as any).chrome = {
+      storage: {
+        local: {
+          get: jest.fn((key: string, callback?: (result: any) => void) => {
+            const result = { [key]: store[key] };
+            if (callback) { callback(result); return undefined; }
+            return Promise.resolve(result);
+          }),
+          set: jest.fn((items: Record<string, any>) => {
+            Object.assign(store, items);
+            return Promise.resolve();
+          }),
+        },
+      },
+    };
+    (mockStorageService.getSettings as jest.Mock).mockResolvedValue(defaultSettings);
+    (mockStorageService.getAnalysisConfig as jest.Mock).mockResolvedValue(defaultAnalysisConfig);
+    (mockStorageService.updateAnalysisConfig as jest.Mock).mockResolvedValue(defaultAnalysisConfig);
+  });
+
+  test('renders the section only when a placeholder service is provided', async () => {
+    const { PlaceholderService } = await import('../../services/PlaceholderService');
+    const { unmount } = render(<Settings storageService={mockStorageService} />);
+    expect(screen.queryByText('Global Placeholder Variables')).not.toBeInTheDocument();
+    unmount();
+
+    render(<Settings storageService={mockStorageService} placeholderService={new PlaceholderService()} />);
+    expect(screen.getByText('Global Placeholder Variables')).toBeInTheDocument();
+  });
+
+  test('merges placeholder values from an imported configuration file', async () => {
+    const { PlaceholderService } = await import('../../services/PlaceholderService');
+    store.globalPlaceholders = { SITE_NAME: ['Existing'] };
+
+    const { container } = render(
+      <Settings storageService={mockStorageService} placeholderService={new PlaceholderService()} />
+    );
+    // eslint-disable-next-line testing-library/no-container, testing-library/no-node-access
+    const configInput = container.querySelectorAll('input[type="file"]')[1] as HTMLInputElement;
+    const file = new File([JSON.stringify({
+      version: '1.0',
+      exportDate: new Date().toISOString(),
+      config: defaultAnalysisConfig,
+      globalPlaceholders: { SITE_NAME: ['Existing', 'Imported'], 'bad key': ['ignored'], LIST_TITLE: ['Docs'] },
+    })], 'config.json', { type: 'application/json' });
+
+    fireEvent.change(configInput, { target: { files: [file] } });
+
+    expect(await screen.findByText(/imported successfully \(with 3 placeholder value\(s\)\)/)).toBeInTheDocument();
+    expect(store.globalPlaceholders).toEqual({ SITE_NAME: ['Existing', 'Imported'], LIST_TITLE: ['Docs'] });
+  });
+});

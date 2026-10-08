@@ -1,23 +1,40 @@
 import React, { useCallback, useEffect, useState, useRef } from 'react';
-import { Stack, Text, Separator, Toggle, TooltipHost, TextField, ChoiceGroup, IChoiceGroupOption, PrimaryButton, DefaultButton, MessageBar, MessageBarType, SpinButton, Label } from '@fluentui/react';
+import { Stack, Text, Separator, Toggle, TooltipHost, TextField, ChoiceGroup, IChoiceGroupOption, PrimaryButton, DefaultButton, MessageBar, MessageBarType, SpinButton, Label, IconButton, Icon } from '@fluentui/react';
 import { IStorageService } from '../services/interfaces';
 import { actionSanitizer } from '../services/ActionSanitizer';
 import { FunctionKeyMode } from '../services/UtilityActionsService';
 import { ISettingsModel, defaultSettings, IActionModel, ViewMode, ThemeMode } from '../models';
 import { IAnalysisConfig, IRatingThresholds, defaultAnalysisConfig, IAnalysisConfigExport, ANALYSIS_CONFIG_VERSION } from '../config/AnalysisConfig';
+import { GlobalPlaceholders, PlaceholderService } from '../services/PlaceholderService';
 
 interface SettingsProps {
   storageService: IStorageService;
   onSettingsChange?: (settings: ISettingsModel) => void;
   onFavoritesImported?: () => void;
+  placeholderService?: PlaceholderService;
 }
 
-const Settings: React.FC<SettingsProps> = ({ storageService, onSettingsChange, onFavoritesImported }) => {
+const Settings: React.FC<SettingsProps> = ({ storageService, onSettingsChange, onFavoritesImported, placeholderService }) => {
   const [settings, setSettings] = useState<ISettingsModel>(defaultSettings);
   const [analysisConfig, setAnalysisConfig] = useState<IAnalysisConfig>(defaultAnalysisConfig);
   const [message, setMessage] = useState<{ text: string; type: MessageBarType } | null>(null);
+  const [globalPlaceholders, setGlobalPlaceholders] = useState<GlobalPlaceholders>({});
+  const [newPlaceholderKey, setNewPlaceholderKey] = useState('');
+  const [newPlaceholderValue, setNewPlaceholderValue] = useState('');
+  const [newVariantInputs, setNewVariantInputs] = useState<Record<string, string>>({});
+  const [isPlaceholdersExpanded, setIsPlaceholdersExpanded] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const configFileInputRef = useRef<HTMLInputElement>(null);
+
+  const loadGlobalPlaceholders = useCallback(async () => {
+    if (!placeholderService) return;
+    const globals = await placeholderService.getGlobalPlaceholders();
+    setGlobalPlaceholders(globals);
+  }, [placeholderService]);
+
+  useEffect(() => {
+    loadGlobalPlaceholders();
+  }, [loadGlobalPlaceholders]);
 
   useEffect(() => {
     storageService.getSettings().then((loadedSettings) => {
@@ -198,6 +215,47 @@ const Settings: React.FC<SettingsProps> = ({ storageService, onSettingsChange, o
     }
   }, [storageService, onSettingsChange]);
 
+  const handleDeleteGlobalPlaceholder = useCallback(async (key: string) => {
+    if (!placeholderService) return;
+    const updated = await placeholderService.deleteGlobalPlaceholder(key);
+    setGlobalPlaceholders({ ...updated });
+  }, [placeholderService]);
+
+  const handleResetAllGlobalPlaceholders = useCallback(async () => {
+    if (!placeholderService) return;
+    await placeholderService.clearGlobalPlaceholders();
+    setGlobalPlaceholders({});
+  }, [placeholderService]);
+
+  const handleRemoveGlobalPlaceholderVariant = useCallback(async (key: string, value: string) => {
+    if (!placeholderService) return;
+    const updated = await placeholderService.removeGlobalPlaceholderValue(key, value);
+    setGlobalPlaceholders({ ...updated });
+  }, [placeholderService]);
+
+  const handleUpdateGlobalPlaceholderVariant = useCallback(async (key: string, oldValue: string, newValue: string) => {
+    if (!placeholderService) return;
+    const updated = await placeholderService.updateGlobalPlaceholderValue(key, oldValue, newValue);
+    setGlobalPlaceholders({ ...updated });
+  }, [placeholderService]);
+
+  const handleAddGlobalPlaceholder = useCallback(async () => {
+    const key = newPlaceholderKey.trim().toUpperCase().replace(/\s+/g, '_');
+    const value = newPlaceholderValue.trim();
+    if (!key || !value || !placeholderService) return;
+    const updated = await placeholderService.addGlobalPlaceholderValue(key, value);
+    setGlobalPlaceholders({ ...updated });
+    setNewPlaceholderKey('');
+    setNewPlaceholderValue('');
+  }, [newPlaceholderKey, newPlaceholderValue, placeholderService]);
+
+  const handleAddVariantToKey = useCallback(async (key: string, value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed || !placeholderService) return;
+    const updated = await placeholderService.addGlobalPlaceholderValue(key, trimmed);
+    setGlobalPlaceholders({ ...updated });
+  }, [placeholderService]);
+
   const handleExport = useCallback(async () => {
     try {
       const favorites = await storageService.getFavoriteActions();
@@ -337,11 +395,13 @@ const Settings: React.FC<SettingsProps> = ({ storageService, onSettingsChange, o
   const handleConfigExport = useCallback(async () => {
     try {
       const config = await storageService.getAnalysisConfig();
+      const placeholders = placeholderService ? await placeholderService.getGlobalPlaceholders() : {};
 
       const exportData: IAnalysisConfigExport = {
         version: ANALYSIS_CONFIG_VERSION,
         exportDate: new Date().toISOString(),
         config: config,
+        ...(Object.keys(placeholders).length > 0 ? { globalPlaceholders: placeholders } : {}),
       };
 
       const dataStr = JSON.stringify(exportData, null, 2);
@@ -360,7 +420,7 @@ const Settings: React.FC<SettingsProps> = ({ storageService, onSettingsChange, o
       setMessage({ text: 'Failed to export configuration', type: MessageBarType.error });
       console.error('Config export error:', error);
     }
-  }, [storageService]);
+  }, [storageService, placeholderService]);
 
   // Config Import Handler
   const handleConfigImport = useCallback(() => {
@@ -390,7 +450,29 @@ const Settings: React.FC<SettingsProps> = ({ storageService, onSettingsChange, o
       const updatedConfig = await storageService.getAnalysisConfig();
       setAnalysisConfig(updatedConfig);
 
-      setMessage({ text: 'Analysis configuration imported successfully', type: MessageBarType.success });
+      // Placeholder values are merged in as extra variants, never replacing
+      // what the user already has.
+      let importedPlaceholderCount = 0;
+      if (placeholderService && importedData.globalPlaceholders && typeof importedData.globalPlaceholders === 'object') {
+        for (const [key, values] of Object.entries(importedData.globalPlaceholders)) {
+          if (!/^[A-Z][A-Z0-9_]*$/.test(key) || !Array.isArray(values)) { continue; }
+          for (const value of values) {
+            if (typeof value === 'string' && value.trim() !== '') {
+              await placeholderService.addGlobalPlaceholderValue(key, value.trim());
+              importedPlaceholderCount++;
+            }
+          }
+        }
+        if (importedPlaceholderCount > 0) {
+          await loadGlobalPlaceholders();
+        }
+      }
+
+      setMessage({
+        text: 'Analysis configuration imported successfully'
+          + (importedPlaceholderCount > 0 ? ` (with ${importedPlaceholderCount} placeholder value(s))` : ''),
+        type: MessageBarType.success,
+      });
     } catch (error) {
       setMessage({ text: 'Failed to import configuration: Invalid JSON format', type: MessageBarType.error });
       console.error('Config import error:', error);
@@ -399,7 +481,7 @@ const Settings: React.FC<SettingsProps> = ({ storageService, onSettingsChange, o
         configFileInputRef.current.value = '';
       }
     }
-  }, [storageService]);
+  }, [storageService, placeholderService, loadGlobalPlaceholders]);
 
   return (
     <Stack tokens={{ childrenGap: 24 }}>
@@ -705,6 +787,187 @@ const Settings: React.FC<SettingsProps> = ({ storageService, onSettingsChange, o
         </Stack>
       </Stack>
 
+      {/* Global Placeholder Variables Section */}
+      {placeholderService && (
+        <>
+          <Separator />
+          <Stack tokens={{ childrenGap: 12 }}>
+            <Stack
+              horizontal
+              horizontalAlign="space-between"
+              verticalAlign="center"
+              style={{ cursor: 'pointer' }}
+              onClick={() => setIsPlaceholdersExpanded(prev => !prev)}
+            >
+              <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 6 }}>
+                <Icon iconName={isPlaceholdersExpanded ? 'ChevronDown' : 'ChevronRight'} style={{ fontSize: 12 }} />
+                <Stack tokens={{ childrenGap: 4 }}>
+                  <Text variant="medium" styles={{ root: { fontWeight: 600 } }}>
+                    Global Placeholder Variables
+                  </Text>
+                  <Text variant="small" styles={{ root: { color: 'var(--color-fg-secondary)' } }}>
+                    Values automatically used to fill in placeholders (e.g. <code>{'{{SITE_NAME}}'}</code>) across all actions
+                  </Text>
+                </Stack>
+              </Stack>
+              {isPlaceholdersExpanded && (
+                <DefaultButton
+                  text="Reset all"
+                  iconProps={{ iconName: 'Delete' }}
+                  onClick={(e) => { e.stopPropagation(); handleResetAllGlobalPlaceholders(); }}
+                  disabled={Object.keys(globalPlaceholders).length === 0}
+                />
+              )}
+            </Stack>
+
+            {isPlaceholdersExpanded && (
+              <>
+                {(() => {
+                  const knownKeys = placeholderService.getKnownPlaceholderKeys();
+                  const allKeys = Array.from(new Set([...knownKeys, ...Object.keys(globalPlaceholders)])).sort();
+                  if (allKeys.length === 0) {
+                    return (
+                      <Text variant="small" styles={{ root: { color: 'var(--color-fg-secondary)', fontStyle: 'italic' } }}>
+                        No global placeholders yet. Add one below.
+                      </Text>
+                    );
+                  }
+                  return allKeys.map((key) => {
+                    const isBuiltIn = placeholderService.hasKnownPlaceholderOptions(key);
+                    const builtInOptions = isBuiltIn ? placeholderService.getPlaceholderOptions(key, {}) : [];
+                    const userVariants = globalPlaceholders[key] ?? [];
+                    const builtInValues = new Set(builtInOptions.map(o => o.value));
+                    const editableVariants = userVariants.filter(v => !builtInValues.has(v));
+
+                    return (
+                      <Stack key={key} tokens={{ childrenGap: 6 }} style={{ paddingBottom: 8, borderBottom: '1px solid var(--color-stroke-subtle)' }}>
+                        <Stack horizontal horizontalAlign="space-between" verticalAlign="center">
+                          <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 6 }}>
+                            <Label style={{ fontFamily: 'monospace', fontWeight: 600, fontSize: 13 }}>{`{{${key}}}`}</Label>
+                            {isBuiltIn && (
+                              <Text variant="small" style={{ color: 'var(--color-fg-secondary)', fontStyle: 'italic' }}>(built-in)</Text>
+                            )}
+                          </Stack>
+                          {!isBuiltIn && (
+                            <IconButton
+                              iconProps={{ iconName: 'Delete' }}
+                              title={`Remove {{${key}}} and all its variants`}
+                              ariaLabel={`Remove ${key}`}
+                              onClick={() => handleDeleteGlobalPlaceholder(key)}
+                              styles={{ root: { height: 24, width: 24 } }}
+                            />
+                          )}
+                        </Stack>
+
+                        {builtInOptions.map((option) => (
+                          <TooltipHost key={option.value} content={option.tooltip}>
+                            <Stack horizontal tokens={{ childrenGap: 8 }} verticalAlign="center">
+                              <Text
+                                variant="small"
+                                style={{
+                                  fontWeight: 600,
+                                  color: 'var(--color-fg)',
+                                  backgroundColor: 'var(--color-info-bg)',
+                                  border: '1px solid var(--color-info)',
+                                  borderRadius: 4,
+                                  padding: '2px 8px',
+                                  whiteSpace: 'nowrap',
+                                  minWidth: 100,
+                                  textAlign: 'center',
+                                }}
+                              >
+                                {option.label}
+                              </Text>
+                              <TextField
+                                value={option.value}
+                                readOnly
+                                styles={{ root: { flex: 1 }, field: { backgroundColor: 'var(--color-bg-subtle)', color: 'var(--color-fg-secondary)' } }}
+                              />
+                            </Stack>
+                          </TooltipHost>
+                        ))}
+
+                        {editableVariants.map((variant) => (
+                          <Stack key={variant} horizontal tokens={{ childrenGap: 8 }} verticalAlign="center">
+                            <TextField
+                              value={variant}
+                              onChange={(_e, val) => handleUpdateGlobalPlaceholderVariant(key, variant, val ?? '')}
+                              styles={{ root: { flex: 1 } }}
+                            />
+                            <IconButton
+                              iconProps={{ iconName: 'Cancel' }}
+                              ariaLabel={`Remove variant ${variant} from ${key}`}
+                              onClick={() => handleRemoveGlobalPlaceholderVariant(key, variant)}
+                              styles={{ root: { height: 28, width: 28 } }}
+                            />
+                          </Stack>
+                        ))}
+
+                        <Stack horizontal tokens={{ childrenGap: 8 }} verticalAlign="center">
+                          <TextField
+                            placeholder="Add another variant..."
+                            value={newVariantInputs[key] ?? ''}
+                            onChange={(_e, val) => setNewVariantInputs(prev => ({ ...prev, [key]: val ?? '' }))}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter') {
+                                handleAddVariantToKey(key, newVariantInputs[key] ?? '');
+                                setNewVariantInputs(prev => ({ ...prev, [key]: '' }));
+                              }
+                            }}
+                            styles={{ root: { flex: 1 } }}
+                          />
+                          <DefaultButton
+                            text="Add variant"
+                            iconProps={{ iconName: 'Add' }}
+                            onClick={() => {
+                              handleAddVariantToKey(key, newVariantInputs[key] ?? '');
+                              setNewVariantInputs(prev => ({ ...prev, [key]: '' }));
+                            }}
+                            disabled={!(newVariantInputs[key] ?? '').trim()}
+                          />
+                        </Stack>
+                      </Stack>
+                    );
+                  });
+                })()}
+
+                <Stack tokens={{ childrenGap: 4 }}>
+                  <Text variant="small" style={{ fontWeight: 600 }}>Add new placeholder</Text>
+                  <Stack horizontal tokens={{ childrenGap: 8 }} verticalAlign="end">
+                    <Stack tokens={{ childrenGap: 4 }} styles={{ root: { flex: 1 } }}>
+                      <Text variant="small">Key</Text>
+                      <TextField
+                        placeholder="SITE_NAME"
+                        value={newPlaceholderKey}
+                        onChange={(_e, val) => setNewPlaceholderKey(val ?? '')}
+                      />
+                    </Stack>
+                    <Stack tokens={{ childrenGap: 4 }} styles={{ root: { flex: 1 } }}>
+                      <Text variant="small">Value</Text>
+                      <TextField
+                        placeholder="AcceleratorComm"
+                        value={newPlaceholderValue}
+                        onChange={(_e, val) => setNewPlaceholderValue(val ?? '')}
+                        onKeyDown={e => { if (e.key === 'Enter') handleAddGlobalPlaceholder(); }}
+                      />
+                    </Stack>
+                    <DefaultButton
+                      text="Add"
+                      iconProps={{ iconName: 'Add' }}
+                      onClick={handleAddGlobalPlaceholder}
+                      disabled={!newPlaceholderKey.trim() || !newPlaceholderValue.trim()}
+                    />
+                  </Stack>
+                  <Text variant="small" styles={{ root: { color: 'var(--color-fg-secondary)', fontStyle: 'italic' } }}>
+                    Tip: using a key that already exists adds another variant to it instead of replacing it.
+                  </Text>
+                </Stack>
+              </>
+            )}
+          </Stack>
+        </>
+      )}
+
       <Separator />
 
       {/* Utility Function Pack Section */}
@@ -836,7 +1099,7 @@ const Settings: React.FC<SettingsProps> = ({ storageService, onSettingsChange, o
             Configuration Templates
           </Text>
           <Text variant="small" styles={{ root: { color: 'var(--color-fg-secondary)' } }}>
-            Export your analysis settings to share with team or import from a template
+            Export your analysis settings (and global placeholder variables) to share with your team, or import from a template
           </Text>
 
           <Stack horizontal tokens={{ childrenGap: 12 }}>

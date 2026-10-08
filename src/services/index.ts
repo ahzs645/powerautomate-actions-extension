@@ -7,3 +7,4 @@ export * from './PredefinedActionsService';
 export * from './UtilityActionsService';
 export * from './ActionSanitizer';
 export * from './DesignerCopyService';
+export * from './PlaceholderService';
