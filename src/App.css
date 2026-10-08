@@ -382,7 +382,8 @@ body {
 [data-theme="dark"] .ms-Toggle-background {
   background: var(--color-stroke);
 }
-[data-theme="dark"] .ms-Toggle-background.is-checked {
+/* Fluent puts is-checked on the Toggle root, not on the pill */
+[data-theme="dark"] .ms-Toggle.is-checked .ms-Toggle-background {
   background: var(--color-brand);
 }
 
