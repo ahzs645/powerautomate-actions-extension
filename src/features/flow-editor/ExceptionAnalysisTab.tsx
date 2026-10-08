@@ -120,7 +120,7 @@ export const ExceptionAnalysisTab: React.FC<ExceptionAnalysisTabProps> = ({
                   item.type === 'main'
                     ? 'var(--color-success)'
                     : item.type === 'exception' || item.type === 'catch'
-                    ? 'var(--color-warning)'
+                    ? 'var(--color-fg)'
                     : 'var(--color-fg)',
                 fontWeight: item.type !== 'regular' ? 600 : 400,
               },

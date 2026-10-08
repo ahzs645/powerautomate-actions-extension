@@ -163,7 +163,7 @@ export const FlowAnalysisPanel: React.FC<FlowAnalysisPanelProps> = ({
       minWidth: 60,
       maxWidth: 80,
       onRender: (item: FlowVariable) => (
-        <Text style={{ color: item.named ? 'var(--color-success)' : 'var(--color-warning)' }}>
+        <Text style={{ color: item.named ? 'var(--color-success)' : 'var(--color-fg)', fontWeight: item.named ? 400 : 600 }}>
           {item.named ? 'Yes' : 'No'}
         </Text>
       ),
