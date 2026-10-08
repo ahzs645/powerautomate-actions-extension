@@ -198,7 +198,7 @@ describe('App', () => {
     });
 
     await waitFor(() => {
-      const settingsContent = screen.getByText('Extension Settings');
+      const settingsContent = screen.getByRole('heading', { name: 'Settings', level: 2 });
       expect(settingsContent).toBeInTheDocument();
     });
   });

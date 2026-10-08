@@ -4,6 +4,7 @@ import Settings from '../../components/Settings';
 import { IStorageService } from '../../services/interfaces';
 import { ISettingsModel, defaultSettings } from '../../models';
 import { defaultAnalysisConfig } from '../../config/AnalysisConfig';
+import { PlaceholderService } from '../../services/PlaceholderService';
 
 // Mock storage service
 const mockStorageService: IStorageService = {
@@ -52,25 +53,60 @@ describe('Settings component', () => {
   });
 
   test('renders Settings component with correct heading', () => {
-    render(<Settings storageService={mockStorageService} />);
-    
-    const heading = screen.getByText('Extension Settings');
-    expect(heading).toBeInTheDocument();
-    
-    const subtitle = screen.getByText('Configure how the Power Automate Actions extension behaves');
-    expect(subtitle).toBeInTheDocument();
+    render(<Settings defaultExpanded="all" storageService={mockStorageService} />);
+
+    expect(screen.getByRole('heading', { name: 'Settings', level: 2 })).toBeInTheDocument();
+    expect(screen.getByText('Configure how Power Automate Toolkit behaves')).toBeInTheDocument();
   });
 
   test('renders all settings sections', () => {
+    const placeholderService = new PlaceholderService();
+    jest.spyOn(placeholderService, 'getGlobalPlaceholders').mockResolvedValue({});
+    render(<Settings defaultExpanded="all" storageService={mockStorageService} placeholderService={placeholderService} />);
+
+    for (const name of ['General', 'Recording', 'Library', 'Placeholders', 'Favorites import/export', 'Flow editor analysis', 'Naming conventions']) {
+      expect(screen.getByRole('button', { name: new RegExp(`^${name.replace('/', '\\/')}`) })).toHaveAttribute('aria-expanded', 'true');
+    }
+    expect(screen.getByText('Page Detection Mode')).toBeInTheDocument();
+  });
+
+  test('opens on General with the other sections collapsed, and toggles a section', () => {
     render(<Settings storageService={mockStorageService} />);
 
+    expect(screen.getByRole('button', { name: /^General/ })).toHaveAttribute('aria-expanded', 'true');
+    const recording = screen.getByRole('button', { name: /^Recording/ });
+    expect(recording).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText('Page Detection Mode')).not.toBeInTheDocument();
+
+    fireEvent.click(recording);
+    expect(recording).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByText('Page Detection Mode')).toBeInTheDocument();
-    expect(screen.getByText('Favorite Actions Management')).toBeInTheDocument();
-    expect(screen.getByText('Flow Analysis Configuration')).toBeInTheDocument();
+  });
+
+  test('opens straight at the utility block when asked to', () => {
+    const scrollIntoView = jest.fn();
+    (Element.prototype as any).scrollIntoView = scrollIntoView;
+    try {
+      render(<Settings storageService={mockStorageService} focusSection="utility" />);
+
+      expect(screen.getByRole('button', { name: /^Library/ })).toHaveAttribute('aria-expanded', 'true');
+      expect(screen.getByRole('textbox', { name: 'Function App URL' })).toHaveFocus();
+      expect(scrollIntoView).toHaveBeenCalled();
+    } finally {
+      delete (Element.prototype as any).scrollIntoView;
+    }
+  });
+
+  test('renders a Back button when given onBack', () => {
+    const onBack = jest.fn();
+    render(<Settings storageService={mockStorageService} onBack={onBack} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back to actions' }));
+    expect(onBack).toHaveBeenCalled();
   });
 
   test('renders Page Detection Mode setting', () => {
-    render(<Settings storageService={mockStorageService} />);
+    render(<Settings defaultExpanded="all" storageService={mockStorageService} />);
     
     const settingTitle = screen.getByText('Page Detection Mode');
     expect(settingTitle).toBeInTheDocument();
@@ -83,7 +119,7 @@ describe('Settings component', () => {
   });
 
   test('renders Power Automate page options', () => {
-    render(<Settings storageService={mockStorageService} />);
+    render(<Settings defaultExpanded="all" storageService={mockStorageService} />);
     
     const classicOption = screen.getByRole('radio', { name: 'Classic Power Automate Editor' });
     expect(classicOption).toBeInTheDocument();
@@ -93,21 +129,11 @@ describe('Settings component', () => {
   });
 
   test('renders recording time setting', () => {
-    render(<Settings storageService={mockStorageService} />);
+    render(<Settings defaultExpanded="all" storageService={mockStorageService} />);
 
     const timeField = screen.getByPlaceholderText('No limit');
     expect(timeField).toBeInTheDocument();
     expect(timeField).toHaveAttribute('type', 'number');
-  });
-
-  test('renders action search bar setting', () => {
-    render(<Settings storageService={mockStorageService} />);
-
-    const searchBarText = screen.getByText('Show Action Search Bar');
-    expect(searchBarText).toBeInTheDocument();
-
-    const toggles = screen.getAllByRole('switch');
-    expect(toggles[0]).toHaveAttribute('aria-checked', 'true');
   });
 
   test('loads initial settings from storage', async () => {
@@ -118,7 +144,7 @@ describe('Settings component', () => {
     };
     (mockStorageService.getSettings as jest.Mock).mockResolvedValue(testSettings);
     
-    render(<Settings storageService={mockStorageService} />);
+    render(<Settings defaultExpanded="all" storageService={mockStorageService} />);
     
     await waitFor(() => {
       expect(mockStorageService.getSettings).toHaveBeenCalled();
@@ -127,7 +153,7 @@ describe('Settings component', () => {
 
   test('shows automatic detection message when SharePoint value is null', async () => {
     // This test is no longer relevant since we removed the automatic detection messages
-    render(<Settings storageService={mockStorageService} />);
+    render(<Settings defaultExpanded="all" storageService={mockStorageService} />);
     
     const automaticOption = screen.getByRole('radio', { name: 'Automatic Detection' });
     expect(automaticOption).toBeChecked();
@@ -135,7 +161,7 @@ describe('Settings component', () => {
 
   test('shows Power Automate automatic detection message when both values are null', async () => {
     // This test is no longer relevant since we removed the automatic detection messages 
-    render(<Settings storageService={mockStorageService} />);
+    render(<Settings defaultExpanded="all" storageService={mockStorageService} />);
     
     const pageDetectionTitle = screen.getByText('Page Detection Mode');
     expect(pageDetectionTitle).toBeInTheDocument();
@@ -150,7 +176,7 @@ describe('Settings component', () => {
     };
     (mockStorageService.updateSettings as jest.Mock).mockResolvedValue(updatedSettings);
     
-    render(<Settings storageService={mockStorageService} />);
+    render(<Settings defaultExpanded="all" storageService={mockStorageService} />);
     
     const recordingOption = screen.getByRole('radio', { name: 'Recording Page Override' });
     fireEvent.click(recordingOption);
@@ -173,7 +199,7 @@ describe('Settings component', () => {
     };
     (mockStorageService.updateSettings as jest.Mock).mockResolvedValue(updatedSettings);
     
-    render(<Settings storageService={mockStorageService} />);
+    render(<Settings defaultExpanded="all" storageService={mockStorageService} />);
     
     const classicOption = screen.getByRole('radio', { name: 'Classic Power Automate Editor' });
     fireEvent.click(classicOption);
@@ -196,7 +222,7 @@ describe('Settings component', () => {
     };
     (mockStorageService.updateSettings as jest.Mock).mockResolvedValue(updatedSettings);
     
-    render(<Settings storageService={mockStorageService} />);
+    render(<Settings defaultExpanded="all" storageService={mockStorageService} />);
     
     const modernOption = screen.getByRole('radio', { name: 'Modern Power Automate Editor' });
     fireEvent.click(modernOption);
@@ -226,7 +252,7 @@ describe('Settings component', () => {
     };
     (mockStorageService.updateSettings as jest.Mock).mockResolvedValue(updatedSettings);
 
-    render(<Settings storageService={mockStorageService} />);
+    render(<Settings defaultExpanded="all" storageService={mockStorageService} />);
 
     // Wait for initial settings to load so recording mode is selected
     await waitFor(() => {
@@ -249,7 +275,7 @@ describe('Settings component', () => {
     const updatedSettings: ISettingsModel = { ...defaultSettings, maximumRecordingTimeMinutes: 30 };
     (mockStorageService.updateSettings as jest.Mock).mockResolvedValue(updatedSettings);
 
-    render(<Settings storageService={mockStorageService} />);
+    render(<Settings defaultExpanded="all" storageService={mockStorageService} />);
 
     const timeField = screen.getByPlaceholderText('No limit');
     fireEvent.change(timeField, { target: { value: '30' } });
@@ -259,24 +285,9 @@ describe('Settings component', () => {
     });
   });
 
-  test('updates show action search bar setting', async () => {
-    const updatedSettings: ISettingsModel = { ...defaultSettings, showActionSearchBar: false };
-    (mockStorageService.updateSettings as jest.Mock).mockResolvedValue(updatedSettings);
-
-    render(<Settings storageService={mockStorageService} />);
-
-    // Select by accessible name rather than position - the settings panel gains
-    // toggles over time and an index-based lookup silently targets the wrong one.
-    fireEvent.click(screen.getByRole('switch', { name: 'Show Action Search Bar' }));
-
-    await waitFor(() => {
-      expect(mockStorageService.updateSettings).toHaveBeenCalledWith({ showActionSearchBar: false });
-    });
-  });
-
   test('saves the toolkit master switch under appSettings.extensionEnabled', async () => {
     const onSettingsChange = jest.fn();
-    render(<Settings storageService={mockStorageService} onSettingsChange={onSettingsChange} />);
+    render(<Settings defaultExpanded="all" storageService={mockStorageService} onSettingsChange={onSettingsChange} />);
 
     const toggle = screen.getByRole('switch', { name: 'Enable toolkit on Power Automate pages' });
     expect(toggle).toBeChecked();
@@ -290,7 +301,7 @@ describe('Settings component', () => {
   });
 
   test('saves the designer button toggle', async () => {
-    render(<Settings storageService={mockStorageService} />);
+    render(<Settings defaultExpanded="all" storageService={mockStorageService} />);
 
     const toggle = screen.getByRole('switch', { name: "Show 'Edit JSON' button in the flow designer" });
     expect(toggle).toBeChecked();
@@ -304,30 +315,31 @@ describe('Settings component', () => {
   test('treats absent platform settings as on', async () => {
     const { extensionEnabled, showDesignerButton, ...legacy } = defaultSettings;
     (mockStorageService.getSettings as jest.Mock).mockResolvedValue(legacy);
-    render(<Settings storageService={mockStorageService} />);
+    render(<Settings defaultExpanded="all" storageService={mockStorageService} />);
 
     await waitFor(() => expect(mockStorageService.getSettings).toHaveBeenCalled());
     expect(screen.getByRole('switch', { name: 'Enable toolkit on Power Automate pages' })).toBeChecked();
     expect(screen.getByRole('switch', { name: "Show 'Edit JSON' button in the flow designer" })).toBeChecked();
   });
 
+  test('no longer offers the unused search bar toggle', () => {
+    render(<Settings defaultExpanded="all" storageService={mockStorageService} />);
+    expect(screen.queryByText('Show Action Search Bar')).not.toBeInTheDocument();
+  });
+
+  test('uses an icon, not an emoji, for info tips', () => {
+    const { container } = render(<Settings defaultExpanded="all" storageService={mockStorageService} />);
+    expect(container.textContent).not.toContain('ℹ️');
+    expect(screen.getByTestId('recording-time-info-icon')).toHaveAttribute('data-icon-name', 'Info');
+  });
+
   test('shows tooltip for recording time info icon', async () => {
-    render(<Settings storageService={mockStorageService} />);
+    render(<Settings defaultExpanded="all" storageService={mockStorageService} />);
     
     const infoIcon = screen.getByTestId('recording-time-info-icon');
     expect(infoIcon).toBeInTheDocument();
     
     const tooltipText = screen.getByText(/Set a maximum duration for recording sessions/);
-    expect(tooltipText).toBeInTheDocument();
-  });
-
-  test('shows tooltip for search bar info icon', async () => {
-    render(<Settings storageService={mockStorageService} />);
-    
-    const infoIcon = screen.getByTestId('search-bar-info-icon');
-    expect(infoIcon).toBeInTheDocument();
-    
-    const tooltipText = screen.getByText(/Control whether the action search bar appears/);
     expect(tooltipText).toBeInTheDocument();
   });
 
@@ -341,7 +353,7 @@ describe('Settings component', () => {
     };
     (mockStorageService.updateSettings as jest.Mock).mockResolvedValue(updatedSettings);
     
-    render(<Settings storageService={mockStorageService} onSettingsChange={onSettingsChange} />);
+    render(<Settings defaultExpanded="all" storageService={mockStorageService} onSettingsChange={onSettingsChange} />);
     
     const recordingOption = screen.getByRole('radio', { name: 'Recording Page Override' });
     fireEvent.click(recordingOption);
@@ -395,7 +407,7 @@ describe('Settings handleFileChange (favorites import)', () => {
     (mockStorageService.setFavoriteActions as jest.Mock).mockResolvedValue(undefined);
 
     const { container } = render(
-      <Settings storageService={mockStorageService} onFavoritesImported={onFavoritesImported} />
+      <Settings defaultExpanded="all" storageService={mockStorageService} onFavoritesImported={onFavoritesImported} />
     );
 
     const fileInput = getHiddenFileInput(container);
@@ -424,9 +436,10 @@ describe('Settings handleFileChange (favorites import)', () => {
       newFavorite2,
     ]);
 
-    expect(
-      await screen.findByText('Successfully imported 2 new favorite action(s) (2 duplicate(s) skipped)')
-    ).toBeInTheDocument();
+    const feedback = await screen.findByText('Successfully imported 2 new favorite action(s) (2 duplicate(s) skipped)');
+    // Shown next to the Import button, not at the top of a scrolled page.
+    // eslint-disable-next-line testing-library/no-node-access
+    expect(feedback.closest('#settings-favorites')).not.toBeNull();
 
     expect(onFavoritesImported).toHaveBeenCalledTimes(1);
   });
@@ -435,7 +448,7 @@ describe('Settings handleFileChange (favorites import)', () => {
     (mockStorageService.getFavoriteActions as jest.Mock).mockResolvedValue([]);
     (mockStorageService.setFavoriteActions as jest.Mock).mockResolvedValue(undefined);
 
-    const { container } = render(<Settings storageService={mockStorageService} />);
+    const { container } = render(<Settings defaultExpanded="all" storageService={mockStorageService} />);
     const fileInput = getHiddenFileInput(container);
     const file = new File(['[]'], 'favorites.txt', { type: 'text/plain' });
 
@@ -452,7 +465,7 @@ describe('Settings handleFileChange (favorites import)', () => {
     (mockStorageService.setFavoriteActions as jest.Mock).mockResolvedValue(undefined);
 
     const { container } = render(
-      <Settings storageService={mockStorageService} onFavoritesImported={onFavoritesImported} />
+      <Settings defaultExpanded="all" storageService={mockStorageService} onFavoritesImported={onFavoritesImported} />
     );
     const fileInput = getHiddenFileInput(container);
     const file = new File(['{invalid json'], 'favorites.json', { type: 'application/json' });
@@ -473,7 +486,7 @@ describe('Settings handleFileChange (favorites import)', () => {
     (mockStorageService.getFavoriteActions as jest.Mock).mockResolvedValue([]);
     (mockStorageService.setFavoriteActions as jest.Mock).mockResolvedValue(undefined);
 
-    const { container } = render(<Settings storageService={mockStorageService} />);
+    const { container } = render(<Settings defaultExpanded="all" storageService={mockStorageService} />);
     const fileInput = getHiddenFileInput(container);
     const file = new File([JSON.stringify({ id: 'x' })], 'favorites.json', {
       type: 'application/json',
@@ -494,7 +507,7 @@ describe('Settings handleFileChange (favorites import)', () => {
     (mockStorageService.getFavoriteActions as jest.Mock).mockResolvedValue([]);
     (mockStorageService.setFavoriteActions as jest.Mock).mockResolvedValue(undefined);
 
-    const { container } = render(<Settings storageService={mockStorageService} />);
+    const { container } = render(<Settings defaultExpanded="all" storageService={mockStorageService} />);
     const fileInput = getHiddenFileInput(container);
     const file = new File(
       [
@@ -564,12 +577,12 @@ describe('Settings global placeholder variables', () => {
 
   test('renders the section only when a placeholder service is provided', async () => {
     const { PlaceholderService } = await import('../../services/PlaceholderService');
-    const { unmount } = render(<Settings storageService={mockStorageService} />);
-    expect(screen.queryByText('Global Placeholder Variables')).not.toBeInTheDocument();
+    const { unmount } = render(<Settings defaultExpanded="all" storageService={mockStorageService} />);
+    expect(screen.queryByRole('button', { name: /^Placeholders/ })).not.toBeInTheDocument();
     unmount();
 
-    render(<Settings storageService={mockStorageService} placeholderService={new PlaceholderService()} />);
-    expect(screen.getByText('Global Placeholder Variables')).toBeInTheDocument();
+    render(<Settings defaultExpanded="all" storageService={mockStorageService} placeholderService={new PlaceholderService()} />);
+    expect(screen.getByRole('button', { name: /^Placeholders/ })).toBeInTheDocument();
   });
 
   test('merges placeholder values from an imported configuration file', async () => {
@@ -577,7 +590,7 @@ describe('Settings global placeholder variables', () => {
     store.globalPlaceholders = { SITE_NAME: ['Existing'] };
 
     const { container } = render(
-      <Settings storageService={mockStorageService} placeholderService={new PlaceholderService()} />
+      <Settings defaultExpanded="all" storageService={mockStorageService} placeholderService={new PlaceholderService()} />
     );
     // eslint-disable-next-line testing-library/no-container, testing-library/no-node-access
     const configInput = container.querySelectorAll('input[type="file"]')[1] as HTMLInputElement;
