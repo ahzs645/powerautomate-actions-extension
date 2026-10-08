@@ -13,9 +13,19 @@ import {
 import {
   ExceptionAnalysisResult,
   ExceptionIssue,
-  ExceptionAnalyzer,
   ScopeInfo,
 } from '../../services/ExceptionAnalyzer';
+import { MetricCard, MetricRow } from './components/MetricCard';
+
+/** Token colours for on-screen use (ExceptionAnalyzer's hex values serve the HTML report). */
+const LEVEL_COLOR: Record<ExceptionIssue['level'], string> = {
+  fail: 'var(--color-danger)',
+  warning: 'var(--color-fg)',
+  info: 'var(--color-info)',
+};
+
+const scoreColor = (score: number) =>
+  score >= 80 ? 'var(--color-success)' : score >= 50 ? 'var(--color-warning)' : 'var(--color-danger)';
 
 interface ExceptionAnalysisTabProps {
   exceptionResult: ExceptionAnalysisResult;
@@ -23,21 +33,12 @@ interface ExceptionAnalysisTabProps {
 
 const cardStyles = mergeStyles({
   padding: '16px',
-  borderRadius: '8px',
-  boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+  borderRadius: 'var(--radius-md)',
+  boxShadow: 'var(--shadow-sm)',
   backgroundColor: 'var(--color-bg-card)',
+  color: 'var(--color-fg)',
   marginBottom: '12px',
 });
-
-const metricCardStyles = (color: string) =>
-  mergeStyles({
-    padding: '12px 16px',
-    borderRadius: '8px',
-    backgroundColor: color,
-    color: '#fff',
-    minWidth: '100px',
-    textAlign: 'center',
-  });
 
 const statusIconStyles = (passed: boolean) =>
   mergeStyles({
@@ -61,7 +62,7 @@ export const ExceptionAnalysisTab: React.FC<ExceptionAnalysisTabProps> = ({
           <Text
             styles={{
               root: {
-                color: ExceptionAnalyzer.getIssueLevelColor(item.level),
+                color: LEVEL_COLOR[item.level] || 'var(--color-fg)',
                 fontWeight: 600,
                 textTransform: 'uppercase',
               },
@@ -186,7 +187,7 @@ export const ExceptionAnalysisTab: React.FC<ExceptionAnalysisTabProps> = ({
               barHeight={8}
               styles={{
                 progressBar: {
-                  backgroundColor: ExceptionAnalyzer.getScoreColor(exceptionResult.score),
+                  backgroundColor: scoreColor(exceptionResult.score),
                 },
               }}
             />
@@ -196,7 +197,7 @@ export const ExceptionAnalysisTab: React.FC<ExceptionAnalysisTabProps> = ({
             styles={{
               root: {
                 fontWeight: 700,
-                color: ExceptionAnalyzer.getScoreColor(exceptionResult.score),
+                color: 'var(--color-fg)',
               },
             }}
           >
@@ -248,32 +249,11 @@ export const ExceptionAnalysisTab: React.FC<ExceptionAnalysisTabProps> = ({
       </div>
 
       {/* Issue Summary */}
-      <Stack horizontal tokens={{ childrenGap: 12 }}>
-        <div className={metricCardStyles('#d13438')}>
-          <Text variant="xLarge" styles={{ root: { fontWeight: 700, color: '#fff' } }}>
-            {failCount}
-          </Text>
-          <Text variant="small" styles={{ root: { color: '#fff' } }}>
-            Failures
-          </Text>
-        </div>
-        <div className={metricCardStyles('#ff8c00')}>
-          <Text variant="xLarge" styles={{ root: { fontWeight: 700, color: '#fff' } }}>
-            {warningCount}
-          </Text>
-          <Text variant="small" styles={{ root: { color: '#fff' } }}>
-            Warnings
-          </Text>
-        </div>
-        <div className={metricCardStyles('#0078d4')}>
-          <Text variant="xLarge" styles={{ root: { fontWeight: 700, color: '#fff' } }}>
-            {infoCount}
-          </Text>
-          <Text variant="small" styles={{ root: { color: '#fff' } }}>
-            Info
-          </Text>
-        </div>
-      </Stack>
+      <MetricRow label="Exception handling issues">
+        <MetricCard label="Failures" value={failCount} tone={failCount ? 'danger' : 'success'} />
+        <MetricCard label="Warnings" value={warningCount} tone={warningCount ? 'warning' : 'success'} />
+        <MetricCard label="Info" value={infoCount} tone={infoCount ? 'info' : 'neutral'} />
+      </MetricRow>
 
       {/* Scope Structure */}
       {exceptionResult.scopeStructure.length > 0 && (

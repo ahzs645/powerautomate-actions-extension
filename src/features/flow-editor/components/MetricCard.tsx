@@ -1,4 +1,5 @@
-import { mergeStyles } from '@fluentui/react/lib/Styling';
+// The package itself (not @fluentui/react/lib/Styling, which is ESM-only) so Jest can load this.
+import { mergeStyles } from '@fluentui/merge-styles';
 import { ReactNode } from 'react';
 
 /**
