@@ -6,6 +6,12 @@ export interface StatusMessage {
   type: MessageBarType;
   content: ReactNode;
   multiline?: boolean;
+  /** Buttons shown with the message (MessageBar `actions`). */
+  actions?: ReactNode;
+}
+
+export interface ShowOptions {
+  actions?: ReactNode;
 }
 
 /** Confirmations fade on their own; anything the user may need to act on stays. */
@@ -33,11 +39,24 @@ export const useStatusMessages = (autoDismissMs: number = AUTO_DISMISS_MS) => {
   }, []);
 
   const show = useCallback(
-    (content: ReactNode, type: MessageBarType = MessageBarType.success, multiline?: boolean) => {
+    (
+      content: ReactNode,
+      type: MessageBarType = MessageBarType.success,
+      multiline?: boolean,
+      options: ShowOptions = {}
+    ) => {
       const key = `msg-${Date.now()}-${++counter}`;
       timers.current.forEach((timer) => window.clearTimeout(timer));
       timers.current.clear();
-      setMessages([{ key, type, content, multiline: multiline ?? typeof content !== 'string' }]);
+      setMessages([
+        {
+          key,
+          type,
+          content,
+          multiline: multiline ?? (typeof content !== 'string' || !!options.actions),
+          actions: options.actions,
+        },
+      ]);
       if (AUTO_DISMISS.has(type) && autoDismissMs > 0) {
         timers.current.set(
           key,
@@ -75,6 +94,7 @@ export const StatusMessages: React.FC<{
         isMultiline={!!msg.multiline}
         onDismiss={() => onDismiss(msg.key)}
         dismissButtonAriaLabel="Dismiss"
+        actions={msg.actions ? <>{msg.actions}</> : undefined}
       >
         {msg.content}
       </MessageBar>

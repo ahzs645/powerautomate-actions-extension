@@ -5,13 +5,14 @@
 // empty list, so a check that never ran read as "no issues found".
 
 import { IApiProvider } from '../../services/ApiProvider';
+import type { DiagnosticRequestIds } from '../../services/Diagnostics';
 import { SchemaValidationResult } from '../../services/SchemaValidator';
 import { FlowDocument, FlowTarget, getFlowUrl } from './flowPersistence';
 import { FlowError } from './types';
 
 export type CheckOutcome =
   | { status: 'ok'; items: FlowError[] }
-  | { status: 'failed'; reason: string };
+  | { status: 'failed'; reason: string; httpStatus?: number; code?: string; requestIds?: DiagnosticRequestIds };
 
 export interface ValidationReport {
   schema: SchemaValidationResult;
@@ -39,9 +40,13 @@ async function runCheck(api: IApiProvider, url: string, payload: unknown): Promi
     }
     return { status: 'ok', items };
   } catch (error) {
+    const details = error as { status?: number; code?: string; requestIds?: DiagnosticRequestIds };
     return {
       status: 'failed',
       reason: error instanceof Error ? error.message : String(error),
+      ...(typeof details?.status === 'number' ? { httpStatus: details.status } : {}),
+      ...(details?.code ? { code: details.code } : {}),
+      ...(details?.requestIds ? { requestIds: details.requestIds } : {}),
     };
   }
 }
@@ -82,6 +87,16 @@ export function countIssues(report: ValidationReport) {
     errors: apiErrors + report.schema.errorCount,
     warnings: apiWarnings + report.schema.warningCount,
   };
+}
+
+/** The first failed check that carries request ids (for "Copy details"). */
+export function failedCheckWithRequestIds(report: ValidationReport) {
+  for (const check of [report.errorsCheck, report.warningsCheck]) {
+    if (check.status === 'failed' && check.requestIds) {
+      return { status: check.httpStatus, code: check.code, requestIds: check.requestIds };
+    }
+  }
+  return undefined;
 }
 
 /** Reasons the Flow service checks did not run, de-duplicated. */

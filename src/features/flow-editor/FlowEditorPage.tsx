@@ -9,6 +9,8 @@ import { PublishConfirmDialog, SaveConfirmDialog } from './components/ConfirmDia
 import { FlowEditorHeader, groupStartStyles, primaryCommandStyles } from './components/FlowEditorHeader';
 import { EditorView, isEditorView, ViewSwitch } from './components/ViewSwitch';
 import { FlowDiagramView } from './FlowDiagramView';
+import { downloadText, jsonFileName } from './browserActions';
+import { strategyFor } from './flowPersistence';
 import { applyServerText, isTextDirty } from './editorSync';
 import { FlowAnalysisPanel } from './FlowAnalysisPanel';
 import { FlowComparisonPanel } from './FlowComparisonPanel';
@@ -74,6 +76,12 @@ export const FlowEditorPage: React.FC = () => {
   const [liveText, setLiveText] = useState('');
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
 
+  // Messages can start a save themselves (e.g. "Try saving through Dataverse");
+  // they read the editor and hand the server text back through these.
+  const editorRef = useRef<IEditor | null>(null);
+  editorRef.current = editor;
+  const onMessageSaveRef = useRef<(sent: string, serverText: string) => void>(() => undefined);
+
   const {
     envId,
     flowId,
@@ -91,7 +99,14 @@ export const FlowEditorPage: React.FC = () => {
     validation,
     validationPaneIsOpen,
     setValidationPaneIsOpen,
-  } = useFlowEditor();
+    workflowEntityId,
+    saveMethod,
+    copyDiagnostics,
+  } = useFlowEditor({
+    getText: () => editorRef.current?.getValue(),
+    onSaved: (sent, serverText) => onMessageSaveRef.current(sent, serverText),
+  });
+  const saveMethodLabel = strategyFor(saveMethod.effective).label;
 
   const environmentLabel = environment?.displayName || environment?.id || 'this environment';
   const flowName = name || 'Loading…';
@@ -153,6 +168,11 @@ export const FlowEditorPage: React.FC = () => {
     if (result.ok) applyServerText(editor, sent, result.serverText);
     recomputeDirty();
   }, [editor, saveDraft, recomputeDirty]);
+
+  onMessageSaveRef.current = (sent, serverText) => {
+    if (editor) applyServerText(editor, sent, serverText);
+    recomputeDirty();
+  };
 
   const performPublish = useCallback(async () => {
     if (!editor) return;
@@ -251,13 +271,7 @@ export const FlowEditorPage: React.FC = () => {
   const downloadJson = useCallback(() => {
     const json = editor?.getValue() || savedText;
     if (!json) return;
-    const blob = new Blob([json], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${name || 'flow'}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadText(jsonFileName(name), json);
   }, [editor, savedText, name]);
 
   const reconnect = useCallback(() => {
@@ -349,8 +363,70 @@ export const FlowEditorPage: React.FC = () => {
         iconProps: { iconName: 'Package' },
         onClick: () => setSolutionPanelOpen(true),
       },
+      {
+        key: 'saveMethod',
+        text: 'Save method',
+        title: 'Choose how Save and Publish write this environment\'s flows',
+        iconProps: { iconName: 'CloudUpload' },
+        subMenuProps: {
+          items: [
+            {
+              key: 'save-flow',
+              text: 'Flow service (default)',
+              canCheck: true,
+              checked: saveMethod.effective === 'flow',
+              title: 'Save and publish through the Power Automate Flow service',
+              onClick: () => {
+                if (saveMethod.preference === 'flow') return;
+                saveMethod.setPreference('flow');
+                showMessage('Save and Publish go through the Flow service again for this environment.', MessageBarType.info);
+              },
+            },
+            {
+              key: 'save-dataverse',
+              text: 'Dataverse — experimental',
+              canCheck: true,
+              checked: saveMethod.effective === 'dataverse',
+              disabled: !saveMethod.dataverseAvailable,
+              title: saveMethod.dataverseAvailable
+                ? 'Save and publish this environment\'s solution flows through the Dataverse Web API. ' +
+                  'Experimental: not yet verified on every tenant.'
+                : saveMethod.dataverseUnavailableReason,
+              ariaDescription: saveMethod.dataverseAvailable ? 'Experimental' : saveMethod.dataverseUnavailableReason,
+              onClick: () => {
+                saveMethod.setPreference('dataverse');
+                showMessage(
+                  'Save and Publish now go through Dataverse for this environment (experimental). ' +
+                    'Switch back under More commands › Save method.',
+                  MessageBarType.info
+                );
+              },
+            },
+          ],
+        },
+      },
+      {
+        key: 'diagnostics',
+        text: 'Copy diagnostics',
+        title: 'Copy recent request ids and status codes for a support request (no tokens or flow content)',
+        iconProps: { iconName: 'Copy' },
+        onClick: () => {
+          copyDiagnostics();
+        },
+      },
     ],
-    [noFlow, downloadJson, reconnect]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [
+      noFlow,
+      downloadJson,
+      reconnect,
+      copyDiagnostics,
+      saveMethod.effective,
+      saveMethod.preference,
+      saveMethod.dataverseAvailable,
+      saveMethod.dataverseUnavailableReason,
+      saveMethod.setPreference,
+    ]
   );
 
   return (
@@ -362,6 +438,17 @@ export const FlowEditorPage: React.FC = () => {
           environment?.displayName ? `${environment.displayName}` : environment?.id ? `Environment ${environment.id}` : undefined
         }
         environmentTitle={environment ? `Environment id: ${environment.id}` : undefined}
+        badges={
+          workflowEntityId
+            ? [
+                {
+                  key: 'solution',
+                  text: 'Solution flow',
+                  title: `This flow is part of a Dataverse solution (workflow id ${workflowEntityId}).`,
+                },
+              ]
+            : undefined
+        }
         isDirty={isDirty}
         items={items}
         overflowItems={overflowItems}
@@ -406,6 +493,7 @@ export const FlowEditorPage: React.FC = () => {
         isOpen={dialog === 'save'}
         flowName={flowName}
         environmentLabel={environmentLabel}
+        saveMethodLabel={saveMethodLabel}
         onCancel={() => setDialog(null)}
         onConfirm={(dontAskAgain) => {
           rememberSaveConfirmed(dontAskAgain);
@@ -417,6 +505,7 @@ export const FlowEditorPage: React.FC = () => {
         isOpen={dialog === 'publish'}
         flowName={flowName}
         environmentLabel={environmentLabel}
+        saveMethodLabel={saveMethodLabel}
         isDirty={isDirty}
         onCancel={() => setDialog(null)}
         onConfirm={() => {
