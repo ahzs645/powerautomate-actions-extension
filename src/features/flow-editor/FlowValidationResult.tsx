@@ -162,11 +162,16 @@ export const FlowValidationResult: React.FC<FlowValidationResultProps> = ({
       ) : (
         <Stack tokens={{ childrenGap: 16 }} styles={{ root: { paddingTop: 12 } }}>
           <MetricRow label="Validation summary">
-            <MetricCard label="Errors" value={counts!.errors} tone={counts!.errors > 0 ? 'danger' : 'success'} />
+            {/* With the checker down, "0" is only a partial count: no green for it. */}
+            <MetricCard
+              label="Errors"
+              value={counts!.errors}
+              tone={counts!.errors > 0 ? 'danger' : failures.length ? 'neutral' : 'success'}
+            />
             <MetricCard
               label="Warnings"
               value={counts!.warnings}
-              tone={counts!.warnings > 0 ? 'warning' : 'success'}
+              tone={counts!.warnings > 0 ? 'warning' : failures.length ? 'neutral' : 'success'}
             />
             <MetricCard
               label="Flow checker"

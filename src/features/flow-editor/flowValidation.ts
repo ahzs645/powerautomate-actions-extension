@@ -88,7 +88,10 @@ export function countIssues(report: ValidationReport) {
 export function checkerFailures(report: ValidationReport): string[] {
   const reasons: string[] = [];
   for (const check of [report.errorsCheck, report.warningsCheck]) {
-    if (check.status === 'failed' && reasons.indexOf(check.reason) < 0) reasons.push(check.reason);
+    if (check.status !== 'failed') continue;
+    // Reasons are joined into a sentence, so drop their own closing full stop.
+    const reason = check.reason.replace(/[.\s]+$/, '');
+    if (reasons.indexOf(reason) < 0) reasons.push(reason);
   }
   return reasons;
 }

@@ -1,3 +1,4 @@
+import { IButtonStyles } from '@fluentui/react/lib/Button';
 import { CommandBar, ICommandBarItemProps } from '@fluentui/react/lib/CommandBar';
 import { mergeStyles } from '@fluentui/react/lib/Styling';
 import { ReactNode } from 'react';
@@ -71,6 +72,28 @@ const chipClass = mergeStyles({
 
 const commandsClass = mergeStyles({ flex: '1 1 auto', minWidth: 0 });
 
+/**
+ * Command buttons paint Fluent's body colour by default, which shows up as dark
+ * blocks on the card-coloured header in dark mode. Let the header show through.
+ */
+const transparentButtonStyles: IButtonStyles = {
+  root: { backgroundColor: 'transparent' },
+  rootHovered: { backgroundColor: 'var(--color-bg-subtle)' },
+  rootPressed: { backgroundColor: 'var(--color-stroke-subtle)' },
+  rootExpanded: { backgroundColor: 'var(--color-bg-subtle)' },
+  rootDisabled: { backgroundColor: 'transparent' },
+};
+
+function mergeButtonStyles(base: IButtonStyles, extra?: IButtonStyles): IButtonStyles {
+  if (!extra) return base;
+  const merged: Record<string, unknown> = { ...base };
+  for (const [key, value] of Object.entries(extra)) {
+    const existing = (base as Record<string, unknown>)[key];
+    merged[key] = existing ? [existing, value] : value;
+  }
+  return merged as IButtonStyles;
+}
+
 export interface FlowEditorHeaderProps {
   flowName: string;
   /** Second line under the name: environment name and/or id. */
@@ -116,9 +139,16 @@ export const FlowEditorHeader: React.FC<FlowEditorHeaderProps> = ({
     </div>
     <div className={commandsClass}>
       <CommandBar
-        items={items}
+        items={items.map((item) => ({
+          ...item,
+          buttonStyles: mergeButtonStyles(transparentButtonStyles, item.buttonStyles),
+        }))}
         overflowItems={overflowItems}
-        overflowButtonProps={{ ariaLabel: 'More commands', title: 'More commands' }}
+        overflowButtonProps={{
+          ariaLabel: 'More commands',
+          title: 'More commands',
+          styles: transparentButtonStyles,
+        }}
         ariaLabel="Flow commands"
         styles={{ root: { padding: 0, height: 44, backgroundColor: 'transparent' } }}
       />
