@@ -35,6 +35,7 @@ export interface ISettingsModel {
   showUtilityParseJsonActions?: boolean;
   /** Scrub tenant metadata and secrets when exporting favorites. */
   sanitizeOnExport?: boolean;
+  loadDefaultPredefinedActions?: boolean;
 }
 
 export const defaultSettings: ISettingsModel = {
@@ -58,4 +59,5 @@ export const defaultSettings: ISettingsModel = {
   includeUnsafeUtilityActions: false,
   showUtilityParseJsonActions: false,
   sanitizeOnExport: true,
+  loadDefaultPredefinedActions: true,
 };

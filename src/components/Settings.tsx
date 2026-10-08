@@ -99,6 +99,11 @@ const Settings: React.FC<SettingsProps> = ({ storageService, onSettingsChange, o
     }
   }, [storageService, onSettingsChange]);
 
+  const handleLoadDefaultPredefinedActionsChange = useCallback(
+    (_e: React.MouseEvent<HTMLElement>, checked?: boolean) =>
+      updateAndNotify({ loadDefaultPredefinedActions: checked ?? true }),
+    [updateAndNotify]);
+
   const handleShowUtilityActionsChange = useCallback(
     (_e: React.MouseEvent<HTMLElement>, checked?: boolean) =>
       updateAndNotify({ showUtilityActions: checked ?? true }),
@@ -265,9 +270,12 @@ const Settings: React.FC<SettingsProps> = ({ storageService, onSettingsChange, o
         return;
       }
 
-      await storageService.setFavoriteActions(importedActions);
-      setMessage({ text: `Successfully imported ${importedActions.length} favorite action(s)`, type: MessageBarType.success });
-
+      const existingFavorites = await storageService.getFavoriteActions();
+      const existingIds = new Set(existingFavorites.map(a => a.id));
+      const newActions = importedActions.filter(a => !existingIds.has(a.id));
+      await storageService.setFavoriteActions([...existingFavorites, ...newActions]);
+      setMessage({ text: `Successfully imported ${newActions.length} new favorite action(s) (${importedActions.length - newActions.length} duplicate(s) skipped)`, type: MessageBarType.success });
+      
       // Trigger favorites list refresh
       if (onFavoritesImported) {
         onFavoritesImported();
@@ -623,7 +631,7 @@ const Settings: React.FC<SettingsProps> = ({ storageService, onSettingsChange, o
           Predefined Actions
         </Text>
         <Text variant="small" styles={{ root: { color: 'var(--color-fg-secondary)' } }}>
-          Load template actions from a GitHub JSON file for easy reuse
+          Load template actions from the default catalog and your own JSON packs for easy reuse
         </Text>
 
         <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 8 }}>
@@ -648,6 +656,31 @@ const Settings: React.FC<SettingsProps> = ({ storageService, onSettingsChange, o
             checked={settings.showPredefinedActions ?? true}
             onChange={handleShowPredefinedActionsChange}
             ariaLabel="Show Predefined Actions"
+          />
+        </Stack>
+
+        <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 8 }}>
+          <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 8 }} styles={{ root: { flex: 1 } }}>
+            <Text>Load Default Actions</Text>
+            <TooltipHost
+              content="Load the community catalog of predefined actions from the upstream project's GitHub folder (cached for 1 hour)."
+              styles={{ root: { display: 'inline-block' } }}
+            >
+              <span
+                style={{
+                  fontSize: 14,
+                  color: 'var(--color-brand)',
+                  cursor: 'help'
+                }}
+              >
+                ℹ️
+              </span>
+            </TooltipHost>
+          </Stack>
+          <Toggle
+            checked={settings.loadDefaultPredefinedActions ?? true}
+            onChange={handleLoadDefaultPredefinedActionsChange}
+            ariaLabel="Load Default Actions"
           />
         </Stack>
 

@@ -108,6 +108,12 @@ describe('PredefinedActionsService multi-source', () => {
     });
 
     describe('getAllActions', () => {
+        beforeEach(() => {
+            // No network unless a test says otherwise; the default catalog then
+            // contributes nothing and the bundled pack stands alone.
+            global.fetch = jest.fn(() => Promise.reject(new Error('offline'))) as any;
+        });
+
         it('returns the bundled utility pack with no remote sources configured', async () => {
             const settings: ISettingsModel = { ...defaultSettings, predefinedActionsUrl: '' };
             const actions = await service.getAllActions(settings);
@@ -174,6 +180,119 @@ describe('PredefinedActionsService multi-source', () => {
 
             const on = await service.getAllActions({ ...defaultSettings, showUtilityParseJsonActions: true });
             expect(on.some(a => a.id === 'utility-parse-merge_pdf_fitz')).toBe(true);
+        });
+    });
+
+    describe('default catalog', () => {
+        const GITHUB_API = 'https://api.github.com/repos/mkm17/powerautomate-actions-extension/contents/predefined-actions';
+
+        const mockGitHub = (remote: IActionModel[] = []) => {
+            global.fetch = jest.fn((url: string) => {
+                if (url === GITHUB_API) {
+                    return Promise.resolve({
+                        ok: true,
+                        json: () => Promise.resolve([
+                            { name: 'SharePoint.json', type: 'file' },
+                            { name: 'README.md', type: 'file' },
+                        ]),
+                    } as Response);
+                }
+                if (url.endsWith('/SharePoint.json')) {
+                    return Promise.resolve({
+                        ok: true,
+                        json: () => Promise.resolve([
+                            { ...buildRemoteAction('Default One'), id: 'shared-id', category: undefined },
+                        ]),
+                    } as Response);
+                }
+                return Promise.resolve({ ok: true, json: () => Promise.resolve(remote) } as Response);
+            }) as any;
+        };
+
+        it('loads the default catalog with the file name as category', async () => {
+            mockGitHub();
+            const actions = await service.getAllActions({ ...defaultSettings, showUtilityActions: false });
+
+            expect(actions).toHaveLength(1);
+            expect(actions[0].title).toBe('Default One');
+            expect(actions[0].category).toBe('SharePoint');
+        });
+
+        it('treats a missing loadDefaultPredefinedActions setting as enabled', async () => {
+            mockGitHub();
+            const settings: ISettingsModel = { ...defaultSettings, showUtilityActions: false };
+            delete settings.loadDefaultPredefinedActions;
+
+            expect(await service.getAllActions(settings)).toHaveLength(1);
+        });
+
+        it('skips the default catalog when turned off', async () => {
+            mockGitHub();
+            const actions = await service.getAllActions({
+                ...defaultSettings,
+                showUtilityActions: false,
+                loadDefaultPredefinedActions: false,
+            });
+
+            expect(actions).toEqual([]);
+            expect(global.fetch).not.toHaveBeenCalled();
+        });
+
+        it('skips every remote source when predefined actions are hidden', async () => {
+            mockGitHub();
+            const actions = await service.getAllActions({
+                ...defaultSettings,
+                showUtilityActions: false,
+                showPredefinedActions: false,
+            });
+
+            expect(actions).toEqual([]);
+            expect(global.fetch).not.toHaveBeenCalled();
+        });
+
+        it('deduplicates by id, keeping the default catalog entry over a custom one', async () => {
+            mockGitHub([{ ...buildRemoteAction('Custom Copy'), id: 'shared-id' }, buildRemoteAction('Custom Only')]);
+            const actions = await service.getAllActions({
+                ...defaultSettings,
+                showUtilityActions: false,
+                predefinedActionsUrl: 'https://example.com/custom.json',
+            });
+
+            expect(actions.map(a => a.title)).toEqual(['Default One', 'Custom Only']);
+        });
+
+        it('defaults uncategorised custom actions to "Custom"', async () => {
+            mockGitHub([{ ...buildRemoteAction('No Category'), category: undefined }]);
+            const actions = await service.getAllActions({
+                ...defaultSettings,
+                showUtilityActions: false,
+                loadDefaultPredefinedActions: false,
+                predefinedActionsUrl: 'https://example.com/custom.json',
+            });
+
+            expect(actions[0].category).toBe('Custom');
+        });
+
+        it('refreshAll re-lists the GitHub folder instead of serving the cache', async () => {
+            mockGitHub();
+            const settings: ISettingsModel = { ...defaultSettings, showUtilityActions: false };
+            await service.getAllActions(settings);
+            expect(store['defaultPredefinedActionsCache']).toHaveLength(1);
+
+            (global.fetch as jest.Mock).mockClear();
+            await service.getAllActions(settings);
+            expect(global.fetch).not.toHaveBeenCalled();
+
+            await service.refreshAll(settings);
+            expect(global.fetch).toHaveBeenCalledWith(GITHUB_API);
+        });
+
+        it('clearCache() with no url also drops the default catalog cache', async () => {
+            mockGitHub();
+            await service.getAllActions({ ...defaultSettings, showUtilityActions: false });
+            await service.clearCache();
+
+            expect(store['defaultPredefinedActionsCache']).toBeUndefined();
         });
     });
 

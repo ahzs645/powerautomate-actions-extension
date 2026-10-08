@@ -29,7 +29,8 @@ describe('App', () => {
     runtime: {
       sendMessage: jest.fn(),
       onMessage: {
-        addListener: jest.fn()
+        addListener: jest.fn(),
+        removeListener: jest.fn()
       }
     },
   };
@@ -202,4 +203,37 @@ describe('App', () => {
     });
   });
 
+
+  test('registers the runtime message listener exactly once and removes it on unmount', async () => {
+    mockChrome.runtime.onMessage.addListener.mockClear();
+    mockChrome.runtime.onMessage.removeListener.mockClear();
+    // Answer storage reads so initData runs to completion.
+    const originalGet = mockChrome.storage.local.get;
+    mockChrome.storage.local.get = jest.fn().mockImplementation((_key: any, callback?: (result: any) => void) => {
+      if (callback) { callback({}); }
+      return Promise.resolve({});
+    });
+
+    const { unmount } = render(<App isRecording={false}
+      isPowerAutomatePage={false}
+      isRecordingPage={true}
+      hasActionsOnPageToCopy={false}
+      actions={[]}
+      myClipboardActions={[]}
+      currentMode={Mode.Requests}
+      favoriteActions={[]}
+      />);
+
+    try {
+      // Let initData settle; it must not register a second listener.
+      await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
+      expect(mockChrome.runtime.onMessage.addListener).toHaveBeenCalledTimes(1);
+
+      const listener = mockChrome.runtime.onMessage.addListener.mock.calls[0][0];
+      unmount();
+      expect(mockChrome.runtime.onMessage.removeListener).toHaveBeenCalledWith(listener);
+    } finally {
+      mockChrome.storage.local.get = originalGet;
+    }
+  });
 });

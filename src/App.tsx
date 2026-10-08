@@ -63,7 +63,7 @@ function App(initialState?: IInitialState | undefined) {
     await storageService.updateSettings({ theme: next });
   }, [activeTheme, applyTheme, storageService]);
 
-  const listenToMessage = (message: ICommunicationChromeMessage, sender: chrome.runtime.MessageSender, sendResponse: (response?: any) => void) => {
+  const listenToMessage = useCallback((message: ICommunicationChromeMessage, sender: chrome.runtime.MessageSender, sendResponse: (response?: any) => void) => {
     if (message.to !== AppElement.ReactApp) { return console.log('Incorrect message destination'); }
     switch (message.actionType) {
       case ActionType.ActionUpdated:
@@ -73,7 +73,7 @@ function App(initialState?: IInitialState | undefined) {
         message.message && setMyClipboardActions(message.message);
         break;
     }
-  }
+  }, []);
 
   const getRecordingPageSetting = useCallback(async (isRecordingPageSetting: boolean | null) => {
     if (isRecordingPageSetting !== null) {
@@ -307,12 +307,18 @@ function App(initialState?: IInitialState | undefined) {
       }
     });
 
-    chrome.runtime.onMessage.addListener(listenToMessage);
   }, [communicationService, storageService, getRecordingPageSetting, getClassicPASetting, getNewPASetting, startRecordingTimer, stopRecordingTimer, loadPredefinedActions, checkFlowPage, applyTheme]);
 
   useEffect(() => {
     initData();
   }, [initData]);
+
+  useEffect(() => {
+    chrome.runtime.onMessage.addListener(listenToMessage);
+    return () => {
+      chrome.runtime.onMessage.removeListener(listenToMessage);
+    };
+  }, [listenToMessage]);
 
   useEffect(() => {
     return () => {
