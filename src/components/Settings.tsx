@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState, useRef } from 'react';
-import { Stack, Text, Separator, Toggle, TooltipHost, TextField, ChoiceGroup, IChoiceGroupOption, PrimaryButton, DefaultButton, MessageBar, MessageBarType, SpinButton, Label, IconButton, Icon } from '@fluentui/react';
+import { DefaultButton, IconButton, PrimaryButton, ChoiceGroup, IChoiceGroupOption, Icon, Label, MessageBar, MessageBarType, SpinButton, Stack, Text, TextField, Toggle, TooltipHost } from '@fluentui/react';
 import { IStorageService } from '../services/interfaces';
 import { actionSanitizer } from '../services/ActionSanitizer';
 import { FunctionKeyMode } from '../services/UtilityActionsService';
@@ -7,24 +7,152 @@ import { ISettingsModel, defaultSettings, IActionModel, ViewMode, ThemeMode } fr
 import { IAnalysisConfig, IRatingThresholds, defaultAnalysisConfig, IAnalysisConfigExport, ANALYSIS_CONFIG_VERSION } from '../config/AnalysisConfig';
 import { GlobalPlaceholders, PlaceholderService } from '../services/PlaceholderService';
 
+export type SettingsSectionKey = 'general' | 'recording' | 'library' | 'placeholders' | 'favorites' | 'analysis' | 'naming';
+/** A section, or 'utility' for the Function App block inside Library. */
+export type SettingsFocus = SettingsSectionKey | 'utility';
+
+type FeedbackKey = 'favorites' | 'config' | 'thresholds' | 'reset';
+type Feedback = { text: string; type: MessageBarType };
+
 interface SettingsProps {
   storageService: IStorageService;
   onSettingsChange?: (settings: ISettingsModel) => void;
   onFavoritesImported?: () => void;
   placeholderService?: PlaceholderService;
+  /** Renders a Back button in the header. */
+  onBack?: () => void;
+  /** Section to open and scroll to on mount. */
+  focusSection?: SettingsFocus | null;
+  /** Sections open on mount; 'all' opens every one. Defaults to General. */
+  defaultExpanded?: SettingsSectionKey[] | 'all';
 }
 
-const Settings: React.FC<SettingsProps> = ({ storageService, onSettingsChange, onFavoritesImported, placeholderService }) => {
+interface ISettingsSectionProps {
+  id: SettingsSectionKey;
+  title: string;
+  description: string;
+  expanded: boolean;
+  onToggle: (id: SettingsSectionKey) => void;
+  children: React.ReactNode;
+}
+
+const SettingsSection: React.FC<ISettingsSectionProps> = ({ id, title, description, expanded, onToggle, children }) => (
+  <section className={`settings-section${expanded ? ' is-expanded' : ''}`} id={`settings-${id}`}>
+    <h3 className="settings-section-heading">
+      <button
+        type="button"
+        className="settings-section-toggle"
+        aria-expanded={expanded}
+        aria-controls={`settings-${id}-body`}
+        onClick={() => onToggle(id)}
+      >
+        <Icon iconName="ChevronRight" className="settings-section-chevron" aria-hidden="true" />
+        <span className="settings-section-text">
+          <span className="settings-section-title">{title}</span>
+          <span className="settings-section-description">{description}</span>
+        </span>
+      </button>
+    </h3>
+    {expanded && (
+      <div className="settings-section-body" id={`settings-${id}-body`}>
+        <Stack tokens={{ childrenGap: 12 }}>{children}</Stack>
+      </div>
+    )}
+  </section>
+);
+
+/** Small info glyph with a tooltip, keyboard-focusable. */
+const InfoTip: React.FC<{ content: string; testId?: string }> = ({ content, testId }) => (
+  <TooltipHost content={content} styles={{ root: { display: 'inline-flex' } }}>
+    <Icon
+      iconName="Info"
+      className="settings-info-icon"
+      data-testid={testId}
+      tabIndex={0}
+      aria-label={content}
+      role="img"
+    />
+  </TooltipHost>
+);
+
+/** A labelled switch row with an optional one-line hint. */
+const ToggleRow: React.FC<{
+  label: string;
+  hint?: string;
+  info?: string;
+  checked: boolean;
+  disabled?: boolean;
+  onChange: (event: React.MouseEvent<HTMLElement>, checked?: boolean) => void;
+}> = ({ label, hint, info, checked, disabled, onChange }) => (
+  <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 8 }}>
+    <Stack styles={{ root: { flex: 1, minWidth: 0 } }}>
+      <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 6 }}>
+        <Text>{label}</Text>
+        {info && <InfoTip content={info} />}
+      </Stack>
+      {hint && <Text variant="small" className="settings-hint">{hint}</Text>}
+    </Stack>
+    <Toggle checked={checked} onChange={onChange} disabled={disabled} ariaLabel={label} styles={{ root: { marginBottom: 0 } }} />
+  </Stack>
+);
+
+const InlineFeedback: React.FC<{ feedback?: Feedback; onDismiss: () => void }> = ({ feedback, onDismiss }) => (
+  feedback ? (
+    <MessageBar
+      messageBarType={feedback.type}
+      isMultiline={true}
+      onDismiss={onDismiss}
+      dismissButtonAriaLabel="Close"
+      className="settings-feedback"
+    >
+      {feedback.text}
+    </MessageBar>
+  ) : null
+);
+
+const ALL_SECTIONS: SettingsSectionKey[] = ['general', 'recording', 'library', 'placeholders', 'favorites', 'analysis', 'naming'];
+
+const Settings: React.FC<SettingsProps> = ({ storageService, onSettingsChange, onFavoritesImported, placeholderService, onBack, focusSection, defaultExpanded }) => {
   const [settings, setSettings] = useState<ISettingsModel>(defaultSettings);
   const [analysisConfig, setAnalysisConfig] = useState<IAnalysisConfig>(defaultAnalysisConfig);
-  const [message, setMessage] = useState<{ text: string; type: MessageBarType } | null>(null);
+  const [feedback, setFeedback] = useState<Partial<Record<FeedbackKey, Feedback>>>({});
   const [globalPlaceholders, setGlobalPlaceholders] = useState<GlobalPlaceholders>({});
   const [newPlaceholderKey, setNewPlaceholderKey] = useState('');
   const [newPlaceholderValue, setNewPlaceholderValue] = useState('');
   const [newVariantInputs, setNewVariantInputs] = useState<Record<string, string>>({});
-  const [isPlaceholdersExpanded, setIsPlaceholdersExpanded] = useState(false);
+  const [expanded, setExpanded] = useState<Set<SettingsSectionKey>>(() => {
+    const initial = new Set<SettingsSectionKey>(defaultExpanded === 'all' ? ALL_SECTIONS : (defaultExpanded ?? ['general']));
+    if (focusSection) { initial.add(focusSection === 'utility' ? 'library' : focusSection); }
+    return initial;
+  });
   const fileInputRef = useRef<HTMLInputElement>(null);
   const configFileInputRef = useRef<HTMLInputElement>(null);
+
+  const toggleSection = useCallback((id: SettingsSectionKey) => {
+    setExpanded(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) { next.delete(id); } else { next.add(id); }
+      return next;
+    });
+  }, []);
+
+  // Opening at a section (e.g. from the "set the Function App URL" warning)
+  // scrolls it into view once it has rendered.
+  useEffect(() => {
+    if (!focusSection) { return; }
+    const target = document.getElementById(`settings-${focusSection}`);
+    target?.scrollIntoView?.({ block: 'start' });
+    const field = focusSection === 'utility' ? document.getElementById('settings-utility-url') : null;
+    field?.focus?.();
+  }, [focusSection]);
+
+  const showFeedback = useCallback((key: FeedbackKey, value: Feedback) => {
+    setFeedback(prev => ({ ...prev, [key]: value }));
+  }, []);
+
+  const dismissFeedback = useCallback((key: FeedbackKey) => {
+    setFeedback(prev => ({ ...prev, [key]: undefined }));
+  }, []);
 
   const loadGlobalPlaceholders = useCallback(async () => {
     if (!placeholderService) return;
@@ -81,12 +209,6 @@ const Settings: React.FC<SettingsProps> = ({ storageService, onSettingsChange, o
     if (settings.isModernPowerAutomatePage === true) return 'modern';
     return 'none';
   }, [settings]);
-
-  const handleShowActionSearchBarChange = useCallback(async (event: React.MouseEvent<HTMLElement>, checked?: boolean) => {
-    const newValue = checked ?? true;
-    const updatedSettings = await storageService.updateSettings({ showActionSearchBar: newValue });
-    setSettings(updatedSettings);
-  }, [storageService]);
 
   const handleShowPredefinedActionsChange = useCallback(async (event: React.MouseEvent<HTMLElement>, checked?: boolean) => {
     const newValue = checked ?? true;
@@ -161,6 +283,18 @@ const Settings: React.FC<SettingsProps> = ({ storageService, onSettingsChange, o
   const handleIncludeUnsafeChange = useCallback(
     (_e: React.MouseEvent<HTMLElement>, checked?: boolean) =>
       updateAndNotify({ includeUnsafeUtilityActions: checked ?? false }),
+    [updateAndNotify]);
+
+  // Read by the background worker and content scripts as appSettings.*;
+  // absent counts as on, so only an explicit false turns either off.
+  const handleExtensionEnabledChange = useCallback(
+    (_e: React.MouseEvent<HTMLElement>, checked?: boolean) =>
+      updateAndNotify({ extensionEnabled: checked ?? true }),
+    [updateAndNotify]);
+
+  const handleShowDesignerButtonChange = useCallback(
+    (_e: React.MouseEvent<HTMLElement>, checked?: boolean) =>
+      updateAndNotify({ showDesignerButton: checked ?? true }),
     [updateAndNotify]);
 
   const handleSanitizeOnExportChange = useCallback(
@@ -261,7 +395,7 @@ const Settings: React.FC<SettingsProps> = ({ storageService, onSettingsChange, o
       const favorites = await storageService.getFavoriteActions();
       
       if (!favorites || favorites.length === 0) {
-        setMessage({ text: 'No favorite actions to export', type: MessageBarType.warning });
+        showFeedback('favorites', { text: 'No favorite actions to export', type: MessageBarType.warning });
         return;
       }
 
@@ -285,16 +419,16 @@ const Settings: React.FC<SettingsProps> = ({ storageService, onSettingsChange, o
       URL.revokeObjectURL(url);
 
       const scrubSummary = result.report ? actionSanitizer.describeReport(result.report) : null;
-      setMessage({
+      showFeedback('favorites', {
         text: `Successfully exported ${favorites.length} favorite action(s)`
           + (scrubSummary ? `. ${scrubSummary}.` : ''),
         type: MessageBarType.success,
       });
     } catch (error) {
-      setMessage({ text: 'Failed to export favorites', type: MessageBarType.error });
+      showFeedback('favorites', { text: 'Failed to export favorites', type: MessageBarType.error });
       console.error('Export error:', error);
     }
-  }, [storageService, settings.sanitizeOnExport]);
+  }, [storageService, settings.sanitizeOnExport, showFeedback]);
 
   const handleImport = useCallback(() => {
     fileInputRef.current?.click();
@@ -305,7 +439,7 @@ const Settings: React.FC<SettingsProps> = ({ storageService, onSettingsChange, o
     if (!file) return;
 
     if (file.type !== 'application/json' && !file.name.endsWith('.json')) {
-      setMessage({ text: 'Please select a valid JSON file', type: MessageBarType.error });
+      showFeedback('favorites', { text: 'Please select a valid JSON file', type: MessageBarType.error });
       return;
     }
 
@@ -314,7 +448,7 @@ const Settings: React.FC<SettingsProps> = ({ storageService, onSettingsChange, o
       const importedActions: IActionModel[] = JSON.parse(fileContent);
 
       if (!Array.isArray(importedActions)) {
-        setMessage({ text: 'Invalid file format: Expected an array of actions', type: MessageBarType.error });
+        showFeedback('favorites', { text: 'Invalid file format: Expected an array of actions', type: MessageBarType.error });
         return;
       }
 
@@ -324,7 +458,7 @@ const Settings: React.FC<SettingsProps> = ({ storageService, onSettingsChange, o
       );
 
       if (!isValid) {
-        setMessage({ text: 'Invalid file format: Missing required action properties', type: MessageBarType.error });
+        showFeedback('favorites', { text: 'Invalid file format: Missing required action properties', type: MessageBarType.error });
         return;
       }
 
@@ -337,14 +471,14 @@ const Settings: React.FC<SettingsProps> = ({ storageService, onSettingsChange, o
         return true;
       });
       await storageService.setFavoriteActions([...existingFavorites, ...newActions]);
-      setMessage({ text: `Successfully imported ${newActions.length} new favorite action(s) (${importedActions.length - newActions.length} duplicate(s) skipped)`, type: MessageBarType.success });
+      showFeedback('favorites', { text: `Successfully imported ${newActions.length} new favorite action(s) (${importedActions.length - newActions.length} duplicate(s) skipped)`, type: MessageBarType.success });
 
       // Trigger favorites list refresh
       if (onFavoritesImported) {
         onFavoritesImported();
       }
     } catch (error) {
-      setMessage({ text: 'Failed to import favorites: Invalid JSON format', type: MessageBarType.error });
+      showFeedback('favorites', { text: 'Failed to import favorites: Invalid JSON format', type: MessageBarType.error });
       console.error('Import error:', error);
     } finally {
       // Reset file input
@@ -352,7 +486,7 @@ const Settings: React.FC<SettingsProps> = ({ storageService, onSettingsChange, o
         fileInputRef.current.value = '';
       }
     }
-  }, [storageService, onFavoritesImported]);
+  }, [storageService, onFavoritesImported, showFeedback]);
 
   // Analysis Configuration Handlers
   const handleThresholdChange = useCallback(async (field: keyof IRatingThresholds, value: string | undefined) => {
@@ -368,8 +502,8 @@ const Settings: React.FC<SettingsProps> = ({ storageService, onSettingsChange, o
       ratingThresholds: newThresholds
     });
     setAnalysisConfig(updatedConfig);
-    setMessage({ text: 'Analysis threshold updated', type: MessageBarType.success });
-  }, [analysisConfig, storageService]);
+    showFeedback('thresholds', { text: 'Analysis threshold updated', type: MessageBarType.success });
+  }, [analysisConfig, storageService, showFeedback]);
 
   const handleNamingPrefixChange = useCallback(async (type: string, newPrefix: string) => {
     const newConventions = analysisConfig.namingConfig.conventions.map(conv =>
@@ -388,8 +522,8 @@ const Settings: React.FC<SettingsProps> = ({ storageService, onSettingsChange, o
   const handleResetAnalysisConfig = useCallback(async () => {
     const resetConfig = await storageService.resetAnalysisConfig();
     setAnalysisConfig(resetConfig);
-    setMessage({ text: 'Analysis configuration reset to defaults', type: MessageBarType.success });
-  }, [storageService]);
+    showFeedback('reset', { text: 'Analysis configuration reset to defaults', type: MessageBarType.success });
+  }, [storageService, showFeedback]);
 
   // Config Export Handler
   const handleConfigExport = useCallback(async () => {
@@ -415,12 +549,12 @@ const Settings: React.FC<SettingsProps> = ({ storageService, onSettingsChange, o
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
 
-      setMessage({ text: 'Analysis configuration exported successfully', type: MessageBarType.success });
+      showFeedback('config', { text: 'Analysis configuration exported successfully', type: MessageBarType.success });
     } catch (error) {
-      setMessage({ text: 'Failed to export configuration', type: MessageBarType.error });
+      showFeedback('config', { text: 'Failed to export configuration', type: MessageBarType.error });
       console.error('Config export error:', error);
     }
-  }, [storageService, placeholderService]);
+  }, [storageService, placeholderService, showFeedback]);
 
   // Config Import Handler
   const handleConfigImport = useCallback(() => {
@@ -432,7 +566,7 @@ const Settings: React.FC<SettingsProps> = ({ storageService, onSettingsChange, o
     if (!file) return;
 
     if (file.type !== 'application/json' && !file.name.endsWith('.json')) {
-      setMessage({ text: 'Please select a valid JSON file', type: MessageBarType.error });
+      showFeedback('config', { text: 'Please select a valid JSON file', type: MessageBarType.error });
       return;
     }
 
@@ -442,7 +576,7 @@ const Settings: React.FC<SettingsProps> = ({ storageService, onSettingsChange, o
 
       // Validate structure
       if (!importedData.config || !importedData.config.ratingThresholds) {
-        setMessage({ text: 'Invalid configuration file format', type: MessageBarType.error });
+        showFeedback('config', { text: 'Invalid configuration file format', type: MessageBarType.error });
         return;
       }
 
@@ -468,23 +602,139 @@ const Settings: React.FC<SettingsProps> = ({ storageService, onSettingsChange, o
         }
       }
 
-      setMessage({
+      showFeedback('config', {
         text: 'Analysis configuration imported successfully'
           + (importedPlaceholderCount > 0 ? ` (with ${importedPlaceholderCount} placeholder value(s))` : ''),
         type: MessageBarType.success,
       });
     } catch (error) {
-      setMessage({ text: 'Failed to import configuration: Invalid JSON format', type: MessageBarType.error });
+      showFeedback('config', { text: 'Failed to import configuration: Invalid JSON format', type: MessageBarType.error });
       console.error('Config import error:', error);
     } finally {
       if (configFileInputRef.current) {
         configFileInputRef.current.value = '';
       }
     }
-  }, [storageService, placeholderService, loadGlobalPlaceholders]);
+  }, [storageService, placeholderService, loadGlobalPlaceholders, showFeedback]);
+
+  const sectionProps = (id: SettingsSectionKey) => ({ id, expanded: expanded.has(id), onToggle: toggleSection });
+
+  const renderPlaceholderKeys = () => {
+    if (!placeholderService) { return null; }
+    const knownKeys = placeholderService.getKnownPlaceholderKeys();
+    const allKeys = Array.from(new Set([...knownKeys, ...Object.keys(globalPlaceholders)])).sort();
+    if (allKeys.length === 0) {
+      return (
+        <Text variant="small" className="settings-hint" styles={{ root: { fontStyle: 'italic' } }}>
+          No global placeholders yet. Add one below.
+        </Text>
+      );
+    }
+    return allKeys.map((key) => {
+      const isBuiltIn = placeholderService.hasKnownPlaceholderOptions(key);
+      const builtInOptions = isBuiltIn ? placeholderService.getPlaceholderOptions(key, {}) : [];
+      const userVariants = globalPlaceholders[key] ?? [];
+      const builtInValues = new Set(builtInOptions.map(o => o.value));
+      const editableVariants = userVariants.filter(v => !builtInValues.has(v));
+
+      return (
+        <Stack key={key} tokens={{ childrenGap: 6 }} className="settings-placeholder">
+          <Stack horizontal horizontalAlign="space-between" verticalAlign="center">
+            <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 6 }}>
+              <Label className="settings-placeholder-key">{`{{${key}}}`}</Label>
+              {isBuiltIn && (
+                <Text variant="small" className="settings-hint" styles={{ root: { fontStyle: 'italic' } }}>(built-in)</Text>
+              )}
+            </Stack>
+            {!isBuiltIn && (
+              <IconButton
+                iconProps={{ iconName: 'Delete' }}
+                title={`Remove {{${key}}} and all its variants`}
+                ariaLabel={`Remove ${key}`}
+                onClick={() => handleDeleteGlobalPlaceholder(key)}
+                styles={{ root: { height: 24, width: 24 } }}
+              />
+            )}
+          </Stack>
+
+          {builtInOptions.map((option) => (
+            <TooltipHost key={option.value} content={option.tooltip}>
+              <Stack horizontal tokens={{ childrenGap: 8 }} verticalAlign="center">
+                <Text variant="small" className="settings-placeholder-chip">{option.label}</Text>
+                <TextField
+                  value={option.value}
+                  readOnly
+                  ariaLabel={`${key} ${option.label}`}
+                  styles={{ root: { flex: 1, minWidth: 0 }, field: { backgroundColor: 'var(--color-bg-subtle)', color: 'var(--color-fg-secondary)' } }}
+                />
+              </Stack>
+            </TooltipHost>
+          ))}
+
+          {editableVariants.map((variant) => (
+            <Stack key={variant} horizontal tokens={{ childrenGap: 8 }} verticalAlign="center">
+              <TextField
+                value={variant}
+                ariaLabel={`${key} value`}
+                onChange={(_e, val) => handleUpdateGlobalPlaceholderVariant(key, variant, val ?? '')}
+                styles={{ root: { flex: 1, minWidth: 0 } }}
+              />
+              <IconButton
+                iconProps={{ iconName: 'Cancel' }}
+                ariaLabel={`Remove variant ${variant} from ${key}`}
+                title="Remove variant"
+                onClick={() => handleRemoveGlobalPlaceholderVariant(key, variant)}
+                styles={{ root: { height: 28, width: 28 } }}
+              />
+            </Stack>
+          ))}
+
+          <Stack horizontal tokens={{ childrenGap: 8 }} verticalAlign="center">
+            <TextField
+              placeholder="Add another variant..."
+              ariaLabel={`Add another value for ${key}`}
+              value={newVariantInputs[key] ?? ''}
+              onChange={(_e, val) => setNewVariantInputs(prev => ({ ...prev, [key]: val ?? '' }))}
+              onKeyDown={e => {
+                if (e.key === 'Enter') {
+                  handleAddVariantToKey(key, newVariantInputs[key] ?? '');
+                  setNewVariantInputs(prev => ({ ...prev, [key]: '' }));
+                }
+              }}
+              styles={{ root: { flex: 1, minWidth: 0 } }}
+            />
+            <DefaultButton
+              text="Add variant"
+              iconProps={{ iconName: 'Add' }}
+              onClick={() => {
+                handleAddVariantToKey(key, newVariantInputs[key] ?? '');
+                setNewVariantInputs(prev => ({ ...prev, [key]: '' }));
+              }}
+              disabled={!(newVariantInputs[key] ?? '').trim()}
+            />
+          </Stack>
+        </Stack>
+      );
+    });
+  };
+
+  const threshold = (field: keyof IRatingThresholds, label: string, max: number, step: number) => (
+    <Stack tokens={{ childrenGap: 4 }} styles={{ root: { minWidth: 120 } }}>
+      <Label htmlFor={`threshold-${field}`}>{label}</Label>
+      <SpinButton
+        inputProps={{ id: `threshold-${field}` }}
+        value={String(analysisConfig.ratingThresholds[field])}
+        min={0}
+        max={max}
+        step={step}
+        onChange={(e, val) => handleThresholdChange(field, val)}
+        styles={{ root: { width: 100 } }}
+      />
+    </Stack>
+  );
 
   return (
-    <Stack tokens={{ childrenGap: 24 }}>
+    <div className="settings">
       <input
         ref={fileInputRef}
         type="file"
@@ -500,68 +750,41 @@ const Settings: React.FC<SettingsProps> = ({ storageService, onSettingsChange, o
         onChange={handleConfigFileChange}
       />
 
-      <Stack tokens={{ childrenGap: 8 }}>
-        <Text variant="xLarge" styles={{ root: { fontWeight: 600, color: 'var(--color-fg)' } }}>
-          Extension Settings
-        </Text>
-        <Text variant="medium" styles={{ root: { color: 'var(--color-fg-secondary)' } }}>
-          Configure how the Power Automate Actions extension behaves
-        </Text>
-      </Stack>
-
-      {message && (
-        <MessageBar
-          messageBarType={message.type}
-          isMultiline={false}
-          onDismiss={() => setMessage(null)}
-          dismissButtonAriaLabel="Close"
-        >
-          {message.text}
-        </MessageBar>
-      )}
-
-      {/* Appearance Section */}
-      <Stack tokens={{ childrenGap: 12 }}>
-        <Text variant="medium" styles={{ root: { fontWeight: 600 } }}>
-          Appearance
-        </Text>
-        <Text variant="small" styles={{ root: { color: 'var(--color-fg-secondary)' } }}>
-          Choose how the extension opens and its visual theme
-        </Text>
-
-        <Stack tokens={{ childrenGap: 8 }}>
-          <Text variant="small" styles={{ root: { fontWeight: 600 } }}>
-            Surface Mode
+      <div className="settings-header">
+        {onBack && (
+          <TooltipHost content="Back to actions">
+            <IconButton
+              iconProps={{ iconName: 'Back' }}
+              ariaLabel="Back to actions"
+              onClick={onBack}
+              className="settings-back"
+            />
+          </TooltipHost>
+        )}
+        <div className="settings-header-text">
+          <h2 className="settings-title">Settings</h2>
+          <Text variant="small" className="settings-hint">
+            Configure how Power Automate Toolkit behaves
           </Text>
-          <ChoiceGroup
-            selectedKey={settings.viewMode || 'popup'}
-            onChange={handleViewModeChange}
-            options={[
-              { key: 'popup', text: 'Popup' },
-              { key: 'sidepanel', text: 'Side Panel' },
-            ]}
-            styles={{
-              root: { marginLeft: '16px' },
-              label: { fontWeight: 'normal' }
-            }}
+        </div>
+      </div>
+
+      <div className="settings-sections">
+        <SettingsSection {...sectionProps('general')} title="General" description="Theme, surface and where the toolkit runs">
+          <ToggleRow
+            label="Enable toolkit on Power Automate pages"
+            hint="Turns off token capture, recording and the designer button"
+            checked={settings.extensionEnabled !== false}
+            onChange={handleExtensionEnabledChange}
           />
-          {surfaceHint && (
-            <MessageBar
-              messageBarType={MessageBarType.info}
-              isMultiline={false}
-              onDismiss={() => setSurfaceHint(null)}
-              dismissButtonAriaLabel="Close"
-            >
-              {surfaceHint}
-            </MessageBar>
-          )}
-        </Stack>
-
-        <Stack tokens={{ childrenGap: 8 }}>
-          <Text variant="small" styles={{ root: { fontWeight: 600 } }}>
-            Theme
-          </Text>
+          <ToggleRow
+            label="Show 'Edit JSON' button in the flow designer"
+            checked={settings.showDesignerButton !== false}
+            disabled={settings.extensionEnabled === false}
+            onChange={handleShowDesignerButtonChange}
+          />
           <ChoiceGroup
+            label="Theme"
             selectedKey={settings.theme || 'system'}
             onChange={handleThemeChange}
             options={[
@@ -569,652 +792,289 @@ const Settings: React.FC<SettingsProps> = ({ storageService, onSettingsChange, o
               { key: 'light', text: 'Light' },
               { key: 'dark', text: 'Dark' },
             ]}
-            styles={{
-              root: { marginLeft: '16px' },
-              label: { fontWeight: 'normal' },
-              flexContainer: { display: 'flex', flexDirection: 'row', gap: '16px' }
-            }}
+            styles={{ flexContainer: { display: 'flex', flexDirection: 'row', flexWrap: 'wrap', columnGap: '16px' } }}
           />
-        </Stack>
-      </Stack>
-      <Separator />
+          <ChoiceGroup
+            label="Open as"
+            selectedKey={settings.viewMode || 'popup'}
+            onChange={handleViewModeChange}
+            options={[
+              { key: 'popup', text: 'Popup' },
+              { key: 'sidepanel', text: 'Side Panel' },
+            ]}
+            styles={{ flexContainer: { display: 'flex', flexDirection: 'row', flexWrap: 'wrap', columnGap: '16px' } }}
+          />
+          {surfaceHint && (
+            <MessageBar
+              messageBarType={MessageBarType.info}
+              isMultiline={true}
+              onDismiss={() => setSurfaceHint(null)}
+              dismissButtonAriaLabel="Close"
+            >
+              {surfaceHint}
+            </MessageBar>
+          )}
+        </SettingsSection>
 
-      <Stack tokens={{ childrenGap: 12 }}>
-        <Text variant="medium" styles={{ root: { fontWeight: 600 } }}>
-          Favorite Actions Management
-        </Text>
-        <Text variant="small" styles={{ root: { color: 'var(--color-fg-secondary)' } }}>
-          Import or export your favorite actions as a JSON file
-        </Text>
-        
-        <Stack horizontal tokens={{ childrenGap: 12 }}>
-          <PrimaryButton
-            text="Import Favorites"
-            onClick={handleImport}
-            iconProps={{ iconName: 'Download' }}
+        <SettingsSection {...sectionProps('recording')} title="Recording" description="Page detection and recording limits">
+          <ChoiceGroup
+            label="Page Detection Mode"
+            selectedKey={getCurrentPageMode()}
+            onChange={handlePageModeChange}
+            options={[
+              { key: 'none', text: 'Automatic Detection' },
+              { key: 'recording', text: 'Recording Page Override' },
+              { key: 'classic', text: 'Classic Power Automate Editor' },
+              { key: 'modern', text: 'Modern Power Automate Editor' },
+            ]}
           />
-          <DefaultButton
-            text="Export Favorites"
-            onClick={handleExport}
-            iconProps={{ iconName: 'Upload' }}
-          />
-        </Stack>
-
-        <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 8 }}>
-          <Stack styles={{ root: { flex: 1 } }}>
-            <Text>Scrub tenant data on export</Text>
-            <Text variant="small" styles={{ root: { color: 'var(--color-fg-secondary)' } }}>
-              Removes drive item ids, file names, email addresses and function keys
-            </Text>
+          <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 8 }}>
+            <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 6 }} styles={{ root: { flex: 1, minWidth: 0 } }}>
+              <Label htmlFor="settings-max-recording">Maximum recording time (minutes)</Label>
+              <InfoTip
+                testId="recording-time-info-icon"
+                content="Set a maximum duration for recording sessions. Leave empty for unlimited recording."
+              />
+            </Stack>
+            <TextField
+              id="settings-max-recording"
+              value={settings.maximumRecordingTimeMinutes?.toString() || ''}
+              onChange={(event, newValue) => handleMaximumRecordingTimeChange(newValue)}
+              placeholder="No limit"
+              type="number"
+              min={1}
+              styles={{ root: { width: 100 } }}
+            />
           </Stack>
-          <Toggle
-            checked={settings.sanitizeOnExport ?? true}
-            onChange={handleSanitizeOnExportChange}
-            ariaLabel="Scrub tenant data on export"
-          />
-        </Stack>
+        </SettingsSection>
 
-        {(settings.sanitizeOnExport ?? true) === false && (
-          <MessageBar messageBarType={MessageBarType.warning} isMultiline>
-            Exports will include the designer metadata attached to each action, which
-            can contain document names, drive item ids and any key present in a URL.
-          </MessageBar>
-        )}
-      </Stack>
-      <Separator />
-      
-      <Stack tokens={{ childrenGap: 12 }}>
-        <Text variant="medium" styles={{ root: { fontWeight: 600 } }}>
-          Page Detection Mode
-        </Text>
-        
-        <ChoiceGroup
-          selectedKey={getCurrentPageMode()}
-          onChange={handlePageModeChange}
-          options={[
-            {
-              key: 'none',
-              text: 'Automatic Detection'
-            },
-            {
-              key: 'recording',
-              text: 'Recording Page Override'
-            },
-            {
-              key: 'classic',
-              text: 'Classic Power Automate Editor'
-            },
-            {
-              key: 'modern',
-              text: 'Modern Power Automate Editor'
-            }
-          ]}
-          styles={{
-            root: { marginLeft: '16px' },
-            label: { fontWeight: 'normal' }
-          }}
-        />
-      </Stack>
-
-      <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 8 }}>
-        <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 8 }} styles={{ root: { flex: 1 } }}>
-          <Text>Maximum Recording Time (minutes)</Text>
-          <TooltipHost
-            content="Set a maximum duration for recording sessions. Leave empty for unlimited recording."
-            styles={{ root: { display: 'inline-block' } }}
-          >
-            <span
-              data-testid="recording-time-info-icon"
-              style={{
-                fontSize: 14,
-                color: 'var(--color-brand)',
-                cursor: 'help'
-              }}
-            >
-              ℹ️
-            </span>
-          </TooltipHost>
-        </Stack>
-        <TextField
-          value={settings.maximumRecordingTimeMinutes?.toString() || ''}
-          onChange={(event, newValue) => handleMaximumRecordingTimeChange(newValue)}
-          placeholder="No limit"
-          type="number"
-          min={1}
-          styles={{ root: { width: 100 } }}
-        />
-      </Stack>
-
-      <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 8 }}>
-        <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 8 }} styles={{ root: { flex: 1 } }}>
-          <Text>Show Action Search Bar</Text>
-          <TooltipHost
-            content="Control whether the action search bar appears in the main interface."
-            styles={{ root: { display: 'inline-block' } }}
-          >
-            <span
-              data-testid="search-bar-info-icon"
-              style={{
-                fontSize: 14,
-                color: 'var(--color-brand)',
-                cursor: 'help'
-              }}
-            >
-              ℹ️
-            </span>
-          </TooltipHost>
-        </Stack>
-        <Toggle
-          checked={settings.showActionSearchBar ?? true}
-          onChange={handleShowActionSearchBarChange}
-          ariaLabel="Show Action Search Bar"
-        />
-      </Stack>
-
-      <Separator />
-
-      <Stack tokens={{ childrenGap: 12 }}>
-        <Text variant="medium" styles={{ root: { fontWeight: 600 } }}>
-          Predefined Actions
-        </Text>
-        <Text variant="small" styles={{ root: { color: 'var(--color-fg-secondary)' } }}>
-          Load template actions from the default catalog and your own JSON packs for easy reuse
-        </Text>
-
-        <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 8 }}>
-          <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 8 }} styles={{ root: { flex: 1 } }}>
-            <Text>Show Predefined Actions</Text>
-            <TooltipHost
-              content="Display a section with predefined action templates loaded from GitHub."
-              styles={{ root: { display: 'inline-block' } }}
-            >
-              <span
-                style={{
-                  fontSize: 14,
-                  color: 'var(--color-brand)',
-                  cursor: 'help'
-                }}
-              >
-                ℹ️
-              </span>
-            </TooltipHost>
-          </Stack>
-          <Toggle
+        <SettingsSection {...sectionProps('library')} title="Library" description="Predefined action packs and the utility function pack">
+          <ToggleRow
+            label="Show Predefined Actions"
+            info="Display the Library tab with predefined action templates."
             checked={settings.showPredefinedActions ?? true}
             onChange={handleShowPredefinedActionsChange}
-            ariaLabel="Show Predefined Actions"
           />
-        </Stack>
-
-        <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 8 }}>
-          <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 8 }} styles={{ root: { flex: 1 } }}>
-            <Text>Load Default Actions</Text>
-            <TooltipHost
-              content="Load the community catalog of predefined actions from the upstream project's GitHub folder (cached for 1 hour)."
-              styles={{ root: { display: 'inline-block' } }}
-            >
-              <span
-                style={{
-                  fontSize: 14,
-                  color: 'var(--color-brand)',
-                  cursor: 'help'
-                }}
-              >
-                ℹ️
-              </span>
-            </TooltipHost>
-          </Stack>
-          <Toggle
+          <ToggleRow
+            label="Load Default Actions"
+            info="Load the community catalog of predefined actions from the upstream project's GitHub folder (cached for 1 hour)."
             checked={settings.loadDefaultPredefinedActions ?? true}
             onChange={handleLoadDefaultPredefinedActionsChange}
-            ariaLabel="Load Default Actions"
           />
-        </Stack>
-
-        <Stack tokens={{ childrenGap: 8 }}>
-          <Text variant="small">Action pack URLs</Text>
           <TextField
+            label="Action pack URLs"
             value={settings.predefinedActionsUrl || ''}
             onChange={handlePredefinedActionsUrlChange}
             placeholder="https://gist.githubusercontent.com/username/gist-id/raw/predefined-actions.json"
-            description="One raw JSON URL per line. Each source is cached separately."
+            description="One raw JSON URL per line. Each source is cached for 1 hour. Tip: GitHub Gists are easy to edit."
             multiline
             rows={3}
           />
-          <Text variant="small" styles={{ root: { color: 'var(--color-fg-secondary)', fontStyle: 'italic' } }}>
-            Tip: Use GitHub Gist for easy editing. Actions are cached for 1 hour.
-          </Text>
-        </Stack>
-      </Stack>
 
-      {/* Global Placeholder Variables Section */}
-      {placeholderService && (
-        <>
-          <Separator />
-          <Stack tokens={{ childrenGap: 12 }}>
-            <Stack
-              horizontal
-              horizontalAlign="space-between"
-              verticalAlign="center"
-              style={{ cursor: 'pointer' }}
-              onClick={() => setIsPlaceholdersExpanded(prev => !prev)}
-            >
-              <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 6 }}>
-                <Icon iconName={isPlaceholdersExpanded ? 'ChevronDown' : 'ChevronRight'} style={{ fontSize: 12 }} />
-                <Stack tokens={{ childrenGap: 4 }}>
-                  <Text variant="medium" styles={{ root: { fontWeight: 600 } }}>
-                    Global Placeholder Variables
-                  </Text>
-                  <Text variant="small" styles={{ root: { color: 'var(--color-fg-secondary)' } }}>
-                    Values automatically used to fill in placeholders (e.g. <code>{'{{SITE_NAME}}'}</code>) across all actions
-                  </Text>
-                </Stack>
-              </Stack>
-              {isPlaceholdersExpanded && (
-                <DefaultButton
-                  text="Reset all"
-                  iconProps={{ iconName: 'Delete' }}
-                  onClick={(e) => { e.stopPropagation(); handleResetAllGlobalPlaceholders(); }}
-                  disabled={Object.keys(globalPlaceholders).length === 0}
-                />
-              )}
-            </Stack>
+          <div className="settings-subsection" id="settings-utility">
+            <h4 className="settings-subsection-title">Utility function pack</h4>
+            <Text variant="small" className="settings-hint">
+              Bundled HTTP presets for the File &amp; Utility Azure Functions app (PDF, Word, Excel, JSON and image operations)
+            </Text>
+          </div>
 
-            {isPlaceholdersExpanded && (
-              <>
-                {(() => {
-                  const knownKeys = placeholderService.getKnownPlaceholderKeys();
-                  const allKeys = Array.from(new Set([...knownKeys, ...Object.keys(globalPlaceholders)])).sort();
-                  if (allKeys.length === 0) {
-                    return (
-                      <Text variant="small" styles={{ root: { color: 'var(--color-fg-secondary)', fontStyle: 'italic' } }}>
-                        No global placeholders yet. Add one below.
-                      </Text>
-                    );
-                  }
-                  return allKeys.map((key) => {
-                    const isBuiltIn = placeholderService.hasKnownPlaceholderOptions(key);
-                    const builtInOptions = isBuiltIn ? placeholderService.getPlaceholderOptions(key, {}) : [];
-                    const userVariants = globalPlaceholders[key] ?? [];
-                    const builtInValues = new Set(builtInOptions.map(o => o.value));
-                    const editableVariants = userVariants.filter(v => !builtInValues.has(v));
-
-                    return (
-                      <Stack key={key} tokens={{ childrenGap: 6 }} style={{ paddingBottom: 8, borderBottom: '1px solid var(--color-stroke-subtle)' }}>
-                        <Stack horizontal horizontalAlign="space-between" verticalAlign="center">
-                          <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 6 }}>
-                            <Label style={{ fontFamily: 'monospace', fontWeight: 600, fontSize: 13 }}>{`{{${key}}}`}</Label>
-                            {isBuiltIn && (
-                              <Text variant="small" style={{ color: 'var(--color-fg-secondary)', fontStyle: 'italic' }}>(built-in)</Text>
-                            )}
-                          </Stack>
-                          {!isBuiltIn && (
-                            <IconButton
-                              iconProps={{ iconName: 'Delete' }}
-                              title={`Remove {{${key}}} and all its variants`}
-                              ariaLabel={`Remove ${key}`}
-                              onClick={() => handleDeleteGlobalPlaceholder(key)}
-                              styles={{ root: { height: 24, width: 24 } }}
-                            />
-                          )}
-                        </Stack>
-
-                        {builtInOptions.map((option) => (
-                          <TooltipHost key={option.value} content={option.tooltip}>
-                            <Stack horizontal tokens={{ childrenGap: 8 }} verticalAlign="center">
-                              <Text
-                                variant="small"
-                                style={{
-                                  fontWeight: 600,
-                                  color: 'var(--color-fg)',
-                                  backgroundColor: 'var(--color-info-bg)',
-                                  border: '1px solid var(--color-info)',
-                                  borderRadius: 4,
-                                  padding: '2px 8px',
-                                  whiteSpace: 'nowrap',
-                                  minWidth: 100,
-                                  textAlign: 'center',
-                                }}
-                              >
-                                {option.label}
-                              </Text>
-                              <TextField
-                                value={option.value}
-                                readOnly
-                                styles={{ root: { flex: 1 }, field: { backgroundColor: 'var(--color-bg-subtle)', color: 'var(--color-fg-secondary)' } }}
-                              />
-                            </Stack>
-                          </TooltipHost>
-                        ))}
-
-                        {editableVariants.map((variant) => (
-                          <Stack key={variant} horizontal tokens={{ childrenGap: 8 }} verticalAlign="center">
-                            <TextField
-                              value={variant}
-                              onChange={(_e, val) => handleUpdateGlobalPlaceholderVariant(key, variant, val ?? '')}
-                              styles={{ root: { flex: 1 } }}
-                            />
-                            <IconButton
-                              iconProps={{ iconName: 'Cancel' }}
-                              ariaLabel={`Remove variant ${variant} from ${key}`}
-                              onClick={() => handleRemoveGlobalPlaceholderVariant(key, variant)}
-                              styles={{ root: { height: 28, width: 28 } }}
-                            />
-                          </Stack>
-                        ))}
-
-                        <Stack horizontal tokens={{ childrenGap: 8 }} verticalAlign="center">
-                          <TextField
-                            placeholder="Add another variant..."
-                            value={newVariantInputs[key] ?? ''}
-                            onChange={(_e, val) => setNewVariantInputs(prev => ({ ...prev, [key]: val ?? '' }))}
-                            onKeyDown={e => {
-                              if (e.key === 'Enter') {
-                                handleAddVariantToKey(key, newVariantInputs[key] ?? '');
-                                setNewVariantInputs(prev => ({ ...prev, [key]: '' }));
-                              }
-                            }}
-                            styles={{ root: { flex: 1 } }}
-                          />
-                          <DefaultButton
-                            text="Add variant"
-                            iconProps={{ iconName: 'Add' }}
-                            onClick={() => {
-                              handleAddVariantToKey(key, newVariantInputs[key] ?? '');
-                              setNewVariantInputs(prev => ({ ...prev, [key]: '' }));
-                            }}
-                            disabled={!(newVariantInputs[key] ?? '').trim()}
-                          />
-                        </Stack>
-                      </Stack>
-                    );
-                  });
-                })()}
-
-                <Stack tokens={{ childrenGap: 4 }}>
-                  <Text variant="small" style={{ fontWeight: 600 }}>Add new placeholder</Text>
-                  <Stack horizontal tokens={{ childrenGap: 8 }} verticalAlign="end">
-                    <Stack tokens={{ childrenGap: 4 }} styles={{ root: { flex: 1 } }}>
-                      <Text variant="small">Key</Text>
-                      <TextField
-                        placeholder="SITE_NAME"
-                        value={newPlaceholderKey}
-                        onChange={(_e, val) => setNewPlaceholderKey(val ?? '')}
-                      />
-                    </Stack>
-                    <Stack tokens={{ childrenGap: 4 }} styles={{ root: { flex: 1 } }}>
-                      <Text variant="small">Value</Text>
-                      <TextField
-                        placeholder="AcceleratorComm"
-                        value={newPlaceholderValue}
-                        onChange={(_e, val) => setNewPlaceholderValue(val ?? '')}
-                        onKeyDown={e => { if (e.key === 'Enter') handleAddGlobalPlaceholder(); }}
-                      />
-                    </Stack>
-                    <DefaultButton
-                      text="Add"
-                      iconProps={{ iconName: 'Add' }}
-                      onClick={handleAddGlobalPlaceholder}
-                      disabled={!newPlaceholderKey.trim() || !newPlaceholderValue.trim()}
-                    />
-                  </Stack>
-                  <Text variant="small" styles={{ root: { color: 'var(--color-fg-secondary)', fontStyle: 'italic' } }}>
-                    Tip: using a key that already exists adds another variant to it instead of replacing it.
-                  </Text>
-                </Stack>
-              </>
-            )}
-          </Stack>
-        </>
-      )}
-
-      <Separator />
-
-      {/* Utility Function Pack Section */}
-      <Stack tokens={{ childrenGap: 12 }}>
-        <Text variant="medium" styles={{ root: { fontWeight: 600 } }}>
-          Utility Function Pack
-        </Text>
-        <Text variant="small" styles={{ root: { color: 'var(--color-fg-secondary)' } }}>
-          Bundled HTTP presets for the File &amp; Utility Azure Functions app (PDF, Word, Excel, JSON and image operations)
-        </Text>
-
-        <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 8 }}>
-          <Text styles={{ root: { flex: 1 } }}>Show utility actions</Text>
-          <Toggle
+          <ToggleRow
+            label="Show utility actions"
             checked={settings.showUtilityActions ?? true}
             onChange={handleShowUtilityActionsChange}
-            ariaLabel="Show utility actions"
           />
-        </Stack>
 
-        <Stack tokens={{ childrenGap: 8 }}>
-          <Text variant="small">Function App URL</Text>
           <TextField
+            id="settings-utility-url"
+            label="Function App URL"
             value={settings.utilityFunctionBaseUrl || ''}
             onChange={handleUtilityBaseUrlChange}
             placeholder="https://my-utils.azurewebsites.net"
             description="Origin only, no trailing slash. Presets append /api/<route>."
           />
-        </Stack>
 
-        <Stack tokens={{ childrenGap: 8 }}>
-          <Text variant="small">Function key handling</Text>
           <ChoiceGroup
+            label="Function key handling"
             selectedKey={settings.utilityFunctionKeyMode || 'inline'}
             options={[
-              {
-                key: 'inline',
-                text: 'Store the key and write it into the URL',
-              },
-              {
-                key: 'parameter',
-                text: 'Emit @{parameters(...)} references instead',
-              },
+              { key: 'inline', text: 'Store the key and write it into the URL' },
+              { key: 'parameter', text: 'Emit @{parameters(...)} references instead' },
             ]}
             onChange={handleUtilityKeyModeChange}
           />
-        </Stack>
 
-        {(settings.utilityFunctionKeyMode || 'inline') === 'inline' ? (
-          <Stack tokens={{ childrenGap: 8 }}>
-            <TextField
-              label="Function key"
-              type="password"
-              canRevealPassword
-              revealPasswordAriaLabel="Show function key"
-              value={settings.utilityFunctionKey || ''}
-              onChange={handleUtilityKeyChange}
-              placeholder="Paste the function or host key"
-            />
-            <MessageBar messageBarType={MessageBarType.warning} isMultiline>
-              The key is stored unencrypted in extension storage and is written into
-              every pasted action. It is always stripped from exports. For anything
-              solution-bound, prefer the parameter option above.
-            </MessageBar>
-          </Stack>
-        ) : (
-          <Stack horizontal tokens={{ childrenGap: 8 }}>
-            <TextField
-              label="Base URL parameter"
-              value={settings.utilityFunctionBaseUrlParameterName || 'AzureFunctionBaseUrl'}
-              onChange={handleUtilityBaseUrlParameterChange}
-              styles={{ root: { flex: 1 } }}
-            />
-            <TextField
-              label="Key parameter"
-              value={settings.utilityFunctionKeyParameterName || 'AzureFunctionKey'}
-              onChange={handleUtilityKeyParameterChange}
-              styles={{ root: { flex: 1 } }}
-            />
-          </Stack>
-        )}
+          {(settings.utilityFunctionKeyMode || 'inline') === 'inline' ? (
+            <>
+              <TextField
+                label="Function key"
+                type="password"
+                canRevealPassword
+                revealPasswordAriaLabel="Show function key"
+                value={settings.utilityFunctionKey || ''}
+                onChange={handleUtilityKeyChange}
+                placeholder="Paste the function or host key"
+              />
+              <MessageBar messageBarType={MessageBarType.warning} isMultiline>
+                The key is stored unencrypted in extension storage and is written into
+                every pasted action. It is always stripped from exports. For anything
+                solution-bound, prefer the parameter option above.
+              </MessageBar>
+            </>
+          ) : (
+            <Stack horizontal wrap tokens={{ childrenGap: 8 }}>
+              <TextField
+                label="Base URL parameter"
+                value={settings.utilityFunctionBaseUrlParameterName || 'AzureFunctionBaseUrl'}
+                onChange={handleUtilityBaseUrlParameterChange}
+                styles={{ root: { flex: '1 1 140px' } }}
+              />
+              <TextField
+                label="Key parameter"
+                value={settings.utilityFunctionKeyParameterName || 'AzureFunctionKey'}
+                onChange={handleUtilityKeyParameterChange}
+                styles={{ root: { flex: '1 1 140px' } }}
+              />
+            </Stack>
+          )}
 
-        <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 8 }}>
-          <Text styles={{ root: { flex: 1 } }}>Add companion Parse JSON actions</Text>
-          <Toggle
+          <ToggleRow
+            label="Add companion Parse JSON actions"
             checked={settings.showUtilityParseJsonActions ?? false}
             onChange={handleShowParseJsonChange}
-            ariaLabel="Add companion Parse JSON actions"
           />
-        </Stack>
-
-        <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 8 }}>
-          <Stack styles={{ root: { flex: 1 } }}>
-            <Text>Include eval-backed endpoints</Text>
-            <Text variant="small" styles={{ root: { color: 'var(--color-fg-secondary)' } }}>
-              py_transform_array, py_filter, for_each_lookup, for_each_filter
-            </Text>
-          </Stack>
-          <Toggle
+          <ToggleRow
+            label="Include eval-backed endpoints"
+            hint="py_transform_array, py_filter, for_each_lookup, for_each_filter"
             checked={settings.includeUnsafeUtilityActions ?? false}
             onChange={handleIncludeUnsafeChange}
-            ariaLabel="Include eval-backed endpoints"
           />
-        </Stack>
+          {settings.includeUnsafeUtilityActions && (
+            <MessageBar messageBarType={MessageBarType.severeWarning} isMultiline>
+              These four endpoints pass your expression to Python <code>eval()</code> with
+              no sandbox. Anyone who can call them can run arbitrary code on the Function
+              App. Only enable this for a function you control.
+            </MessageBar>
+          )}
+        </SettingsSection>
 
-        {settings.includeUnsafeUtilityActions && (
-          <MessageBar messageBarType={MessageBarType.severeWarning} isMultiline>
-            These four endpoints pass your expression to Python <code>eval()</code> with
-            no sandbox. Anyone who can call them can run arbitrary code on the Function
-            App. Only enable this for a function you control.
-          </MessageBar>
+        {placeholderService && (
+          <SettingsSection {...sectionProps('placeholders')} title="Placeholders" description="Global values for {{PLACEHOLDER}} tokens in actions">
+            <Stack horizontal horizontalAlign="space-between" verticalAlign="center" tokens={{ childrenGap: 8 }}>
+              <Text variant="small" className="settings-hint" styles={{ root: { flex: 1, minWidth: 0 } }}>
+                Values automatically used to fill in placeholders (e.g. <code>{'{{SITE_NAME}}'}</code>) across all actions
+              </Text>
+              <DefaultButton
+                text="Reset all"
+                iconProps={{ iconName: 'Delete' }}
+                onClick={handleResetAllGlobalPlaceholders}
+                disabled={Object.keys(globalPlaceholders).length === 0}
+              />
+            </Stack>
+
+            {renderPlaceholderKeys()}
+
+            <Stack tokens={{ childrenGap: 4 }}>
+              <Text variant="small" styles={{ root: { fontWeight: 600 } }}>Add new placeholder</Text>
+              <Stack horizontal wrap tokens={{ childrenGap: 8 }} verticalAlign="end">
+                <TextField
+                  label="Key"
+                  placeholder="SITE_NAME"
+                  value={newPlaceholderKey}
+                  onChange={(_e, val) => setNewPlaceholderKey(val ?? '')}
+                  styles={{ root: { flex: '1 1 120px' } }}
+                />
+                <TextField
+                  label="Value"
+                  placeholder="AcceleratorComm"
+                  value={newPlaceholderValue}
+                  onChange={(_e, val) => setNewPlaceholderValue(val ?? '')}
+                  onKeyDown={e => { if (e.key === 'Enter') handleAddGlobalPlaceholder(); }}
+                  styles={{ root: { flex: '1 1 120px' } }}
+                />
+                <DefaultButton
+                  text="Add"
+                  iconProps={{ iconName: 'Add' }}
+                  onClick={handleAddGlobalPlaceholder}
+                  disabled={!newPlaceholderKey.trim() || !newPlaceholderValue.trim()}
+                />
+              </Stack>
+              <Text variant="small" className="settings-hint" styles={{ root: { fontStyle: 'italic' } }}>
+                Tip: using a key that already exists adds another variant to it instead of replacing it.
+              </Text>
+            </Stack>
+          </SettingsSection>
         )}
-      </Stack>
 
-      <Separator />
-
-      {/* Analysis Configuration Section */}
-      <Stack tokens={{ childrenGap: 12 }}>
-        <Text variant="medium" styles={{ root: { fontWeight: 600 } }}>
-          Flow Analysis Configuration
-        </Text>
-        <Text variant="small" styles={{ root: { color: 'var(--color-fg-secondary)' } }}>
-          Customize thresholds and scoring rules for flow quality analysis
-        </Text>
-
-        {/* Config Templates */}
-        <Stack tokens={{ childrenGap: 8 }} styles={{ root: { marginTop: 12 } }}>
-          <Text variant="small" styles={{ root: { fontWeight: 600 } }}>
-            Configuration Templates
-          </Text>
-          <Text variant="small" styles={{ root: { color: 'var(--color-fg-secondary)' } }}>
-            Export your analysis settings (and global placeholder variables) to share with your team, or import from a template
-          </Text>
-
-          <Stack horizontal tokens={{ childrenGap: 12 }}>
-            <PrimaryButton
-              text="Import Configuration"
-              onClick={handleConfigImport}
-              iconProps={{ iconName: 'Download' }}
-            />
-            <DefaultButton
-              text="Export Configuration"
-              onClick={handleConfigExport}
-              iconProps={{ iconName: 'Upload' }}
-            />
+        <SettingsSection {...sectionProps('favorites')} title="Favorites import/export" description="Move favorite actions between browsers as JSON">
+          <Stack horizontal wrap tokens={{ childrenGap: 8 }}>
+            <PrimaryButton text="Import Favorites" onClick={handleImport} iconProps={{ iconName: 'Download' }} />
+            <DefaultButton text="Export Favorites" onClick={handleExport} iconProps={{ iconName: 'Upload' }} />
           </Stack>
-        </Stack>
+          <InlineFeedback feedback={feedback.favorites} onDismiss={() => dismissFeedback('favorites')} />
+          <ToggleRow
+            label="Scrub tenant data on export"
+            hint="Removes drive item ids, file names, email addresses and function keys"
+            checked={settings.sanitizeOnExport ?? true}
+            onChange={handleSanitizeOnExportChange}
+          />
+          {(settings.sanitizeOnExport ?? true) === false && (
+            <MessageBar messageBarType={MessageBarType.warning} isMultiline>
+              Exports will include the designer metadata attached to each action, which
+              can contain document names, drive item ids and any key present in a URL.
+            </MessageBar>
+          )}
+        </SettingsSection>
 
-        {/* Rating Thresholds */}
-        <Stack tokens={{ childrenGap: 8 }} styles={{ root: { marginTop: 12 } }}>
-          <Text variant="small" styles={{ root: { fontWeight: 600 } }}>
-            Rating Thresholds
-          </Text>
-          <Text variant="small" styles={{ root: { color: 'var(--color-fg-secondary)' } }}>
-            Set amber (warning) and red (critical) thresholds for each metric
-          </Text>
-
-          <Stack horizontal tokens={{ childrenGap: 16 }} wrap>
-            <Stack tokens={{ childrenGap: 4 }} styles={{ root: { minWidth: 120 } }}>
-              <Label>Complexity Amber</Label>
-              <SpinButton
-                value={String(analysisConfig.ratingThresholds.complexityAmber)}
-                min={0}
-                max={500}
-                step={5}
-                onChange={(e, val) => handleThresholdChange('complexityAmber', val)}
-                styles={{ root: { width: 100 } }}
-              />
+        <SettingsSection {...sectionProps('analysis')} title="Flow editor analysis" description="Thresholds the flow editor uses to rate a flow">
+          <Stack tokens={{ childrenGap: 8 }}>
+            <Text variant="small" styles={{ root: { fontWeight: 600 } }}>Configuration templates</Text>
+            <Text variant="small" className="settings-hint">
+              Export your analysis settings (and global placeholder variables) to share with your team, or import from a template
+            </Text>
+            <Stack horizontal wrap tokens={{ childrenGap: 8 }}>
+              <PrimaryButton text="Import Configuration" onClick={handleConfigImport} iconProps={{ iconName: 'Download' }} />
+              <DefaultButton text="Export Configuration" onClick={handleConfigExport} iconProps={{ iconName: 'Upload' }} />
             </Stack>
-            <Stack tokens={{ childrenGap: 4 }} styles={{ root: { minWidth: 120 } }}>
-              <Label>Complexity Red</Label>
-              <SpinButton
-                value={String(analysisConfig.ratingThresholds.complexityRed)}
-                min={0}
-                max={500}
-                step={5}
-                onChange={(e, val) => handleThresholdChange('complexityRed', val)}
-                styles={{ root: { width: 100 } }}
-              />
-            </Stack>
+            <InlineFeedback feedback={feedback.config} onDismiss={() => dismissFeedback('config')} />
           </Stack>
 
-          <Stack horizontal tokens={{ childrenGap: 16 }} wrap>
-            <Stack tokens={{ childrenGap: 4 }} styles={{ root: { minWidth: 120 } }}>
-              <Label>Actions Amber</Label>
-              <SpinButton
-                value={String(analysisConfig.ratingThresholds.actionsAmber)}
-                min={0}
-                max={200}
-                step={5}
-                onChange={(e, val) => handleThresholdChange('actionsAmber', val)}
-                styles={{ root: { width: 100 } }}
-              />
+          <Stack tokens={{ childrenGap: 8 }}>
+            <Text variant="small" styles={{ root: { fontWeight: 600 } }}>Rating thresholds</Text>
+            <Text variant="small" className="settings-hint">
+              Set amber (warning) and red (critical) thresholds for each metric
+            </Text>
+            <Stack horizontal wrap tokens={{ childrenGap: 16 }}>
+              {threshold('complexityAmber', 'Complexity Amber', 500, 5)}
+              {threshold('complexityRed', 'Complexity Red', 500, 5)}
             </Stack>
-            <Stack tokens={{ childrenGap: 4 }} styles={{ root: { minWidth: 120 } }}>
-              <Label>Actions Red</Label>
-              <SpinButton
-                value={String(analysisConfig.ratingThresholds.actionsRed)}
-                min={0}
-                max={200}
-                step={5}
-                onChange={(e, val) => handleThresholdChange('actionsRed', val)}
-                styles={{ root: { width: 100 } }}
-              />
+            <Stack horizontal wrap tokens={{ childrenGap: 16 }}>
+              {threshold('actionsAmber', 'Actions Amber', 200, 5)}
+              {threshold('actionsRed', 'Actions Red', 200, 5)}
             </Stack>
+            <Stack horizontal wrap tokens={{ childrenGap: 16 }}>
+              {threshold('variablesAmber', 'Variables Amber', 50, 1)}
+              {threshold('variablesRed', 'Variables Red', 50, 1)}
+            </Stack>
+            <InlineFeedback feedback={feedback.thresholds} onDismiss={() => dismissFeedback('thresholds')} />
           </Stack>
 
-          <Stack horizontal tokens={{ childrenGap: 16 }} wrap>
-            <Stack tokens={{ childrenGap: 4 }} styles={{ root: { minWidth: 120 } }}>
-              <Label>Variables Amber</Label>
-              <SpinButton
-                value={String(analysisConfig.ratingThresholds.variablesAmber)}
-                min={0}
-                max={50}
-                step={1}
-                onChange={(e, val) => handleThresholdChange('variablesAmber', val)}
-                styles={{ root: { width: 100 } }}
-              />
-            </Stack>
-            <Stack tokens={{ childrenGap: 4 }} styles={{ root: { minWidth: 120 } }}>
-              <Label>Variables Red</Label>
-              <SpinButton
-                value={String(analysisConfig.ratingThresholds.variablesRed)}
-                min={0}
-                max={50}
-                step={1}
-                onChange={(e, val) => handleThresholdChange('variablesRed', val)}
-                styles={{ root: { width: 100 } }}
-              />
-            </Stack>
+          <Stack horizontal wrap verticalAlign="center" tokens={{ childrenGap: 8 }}>
+            <DefaultButton text="Reset to Defaults" onClick={handleResetAnalysisConfig} iconProps={{ iconName: 'Refresh' }} />
+            <Text variant="small" className="settings-hint">Resets thresholds and naming conventions</Text>
           </Stack>
-        </Stack>
+          <InlineFeedback feedback={feedback.reset} onDismiss={() => dismissFeedback('reset')} />
+        </SettingsSection>
 
-        {/* Naming Conventions */}
-        <Stack tokens={{ childrenGap: 8 }} styles={{ root: { marginTop: 12 } }}>
-          <Text variant="small" styles={{ root: { fontWeight: 600 } }}>
-            Variable Naming Conventions
-          </Text>
-          <Text variant="small" styles={{ root: { color: 'var(--color-fg-secondary)' } }}>
+        <SettingsSection {...sectionProps('naming')} title="Naming conventions" description="Variable prefixes the flow editor checks">
+          <Text variant="small" className="settings-hint">
             Set the prefix character for each variable type (e.g., b for boolean, s for string)
           </Text>
-
-          <Stack horizontal tokens={{ childrenGap: 12 }} wrap>
+          <Stack horizontal wrap tokens={{ childrenGap: 12 }}>
             {analysisConfig.namingConfig.conventions.map((conv) => (
               <Stack key={conv.type} tokens={{ childrenGap: 4 }} styles={{ root: { minWidth: 80 } }}>
-                <Label>{conv.type}</Label>
+                <Label htmlFor={`naming-${conv.type}`}>{conv.type}</Label>
                 <TextField
+                  id={`naming-${conv.type}`}
                   value={conv.prefix}
                   maxLength={2}
                   onChange={(e, val) => handleNamingPrefixChange(conv.type, val || '')}
@@ -1223,18 +1083,9 @@ const Settings: React.FC<SettingsProps> = ({ storageService, onSettingsChange, o
               </Stack>
             ))}
           </Stack>
-        </Stack>
-
-        {/* Reset Button */}
-        <Stack horizontal tokens={{ childrenGap: 12 }} styles={{ root: { marginTop: 16 } }}>
-          <DefaultButton
-            text="Reset to Defaults"
-            onClick={handleResetAnalysisConfig}
-            iconProps={{ iconName: 'Refresh' }}
-          />
-        </Stack>
-      </Stack>
-    </Stack>
+        </SettingsSection>
+      </div>
+    </div>
   );
 };
 

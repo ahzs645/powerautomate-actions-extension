@@ -1,7 +1,8 @@
 @import "./theme/tokens.css";
 
 /* ============================================================
-   Power Automate Toolkit – ACtools-inspired design system
+   Power Automate Toolkit – popup / side panel
+   Every colour comes from theme/tokens.css so light and dark agree.
    ============================================================ */
 
 
@@ -21,14 +22,18 @@ body {
   background: var(--color-bg);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  width: 600px;
-  height: 400px;
+  /* The popup sizes itself to the body; keep it equal to .App. */
+  width: var(--popup-width);
+  height: var(--popup-height);
+  overflow: hidden;
 }
 
-/* Sidepanel surface – fill available width */
+/* Sidepanel surface – fill available width, never scroll sideways */
 [data-surface="sidepanel"] body {
   width: 100%;
+  min-width: 0;
   height: 100vh;
+  overflow-x: hidden;
 }
 
 /* ---- Scrollbar ---- */
@@ -52,7 +57,6 @@ body {
 .App {
   width: var(--popup-width);
   height: var(--popup-height);
-  max-height: 600px;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -61,8 +65,12 @@ body {
 
 [data-surface="sidepanel"] .App {
   width: 100%;
+  min-width: 0;
   height: 100vh;
-  max-height: none;
+}
+
+.App > * {
+  min-width: 0;
 }
 
 /* ============================================================
@@ -74,7 +82,7 @@ body {
   display: flex;
   align-items: center;
   height: var(--header-height);
-  padding: 0 var(--space-md);
+  padding: 0 var(--space-sm) 0 var(--space-lg);
   gap: var(--space-xs);
   flex-shrink: 0;
   border-bottom: 1px solid var(--color-header-border);
@@ -86,65 +94,132 @@ body {
   color: var(--color-header-text);
   margin-right: var(--space-sm);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
 }
 
 .App-header-spacer {
   flex: 1;
 }
 
-/* ============================================================
-   Icon Buttons (header & inline)
-   ============================================================ */
-.App-icon {
-  cursor: pointer;
+/* Icon buttons on the dark app bar */
+.App-header .App-icon {
   width: var(--icon-button-size);
   height: var(--icon-button-size);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
   border-radius: var(--radius-sm);
   color: var(--color-header-text-muted);
-  font-size: 16px;
-  transition: background var(--duration-fast) var(--easing),
-              color var(--duration-fast) var(--easing);
-  padding: 0;
+  background: transparent;
 }
-
-.App-icon:hover {
+.App-header .App-icon .ms-Button-icon {
+  color: inherit;
+  font-size: 16px;
+}
+.App-header .App-icon:hover,
+.App-header .App-icon.is-checked {
   background: rgba(255, 255, 255, 0.12);
   color: var(--color-header-text);
 }
-
-.App-icon:active {
+.App-header .App-icon:active {
   background: rgba(255, 255, 255, 0.06);
 }
+.App-header .App-icon:focus-visible,
+.App-header .ms-Button:focus::after {
+  outline-color: var(--color-header-text);
+}
 
 /* ============================================================
-   Theme Toggle Button
+   Primary area / page bar
    ============================================================ */
-.theme-toggle {
-  cursor: pointer;
-  width: var(--icon-button-size);
-  height: var(--icon-button-size);
+.App-pagebar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-xs) var(--space-sm);
+  padding: var(--space-sm) var(--space-lg);
+  background: var(--color-bg-card);
+  border-bottom: 1px solid var(--color-stroke);
+  flex-shrink: 0;
+}
+
+.App-pagebar-context {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs) var(--space-sm);
+  min-width: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-fg-secondary);
+}
+
+.App-pagebar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs) var(--space-sm);
+  min-width: 0;
+}
+
+.App-pagebar-tools {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xxs);
+}
+.App-pagebar-tools:empty {
+  display: none;
+}
+.record-button .ms-Button-icon {
+  color: var(--color-recording);
+}
+
+.page-chip {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  border-radius: var(--radius-sm);
-  border: none;
-  background: transparent;
-  color: var(--color-header-text-muted);
-  font-size: 16px;
-  transition: background var(--duration-fast) var(--easing),
-              color var(--duration-fast) var(--easing);
+  gap: var(--space-xs);
+  padding: var(--space-xxs) var(--space-sm);
+  border-radius: var(--radius-pill);
+  background: var(--color-bg-subtle);
+  border: 1px solid var(--color-stroke);
+  color: var(--color-fg-secondary);
+  font-size: var(--font-size-sm);
+  white-space: nowrap;
+}
+.page-chip strong {
+  color: var(--color-fg);
+  font-weight: var(--font-weight-semibold);
 }
 
-.theme-toggle:hover {
-  background: rgba(255, 255, 255, 0.12);
-  color: var(--color-header-text);
+.page-hint {
+  font-size: var(--font-size-sm);
+  color: var(--color-fg-secondary);
+}
+
+.recording-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  color: var(--color-recording);
+  font-weight: var(--font-weight-semibold);
+}
+.recording-status:empty {
+  display: none;
+}
+.recording-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-pill);
+  background: var(--color-recording);
+  animation: recordingPulse 1.5s ease-in-out infinite;
+}
+.recording-time {
+  font-weight: var(--font-weight-regular);
+  color: var(--color-fg-secondary);
+  font-variant-numeric: tabular-nums;
 }
 
 /* ============================================================
-   Notification / Message Bar
+   Notification Bar
    ============================================================ */
 .App-notification-bar {
   flex-shrink: 0;
@@ -153,51 +228,116 @@ body {
 /* ============================================================
    Tab Bar
    ============================================================ */
-.ms-Pivot {
+.App-tabs {
+  flex-shrink: 0;
+  min-width: 0;
+  overflow: hidden;
   border-bottom: 1px solid var(--color-stroke);
   background: var(--color-bg);
+  padding: 0 var(--space-sm);
 }
 
-.ms-Pivot-link {
+.App-tabs .ms-Pivot-link {
   height: var(--tab-bar-height);
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-md);
+  color: var(--color-fg-secondary);
+  background: transparent;
+  margin-right: 0;
+}
+.App-tabs .ms-Pivot-link:hover {
+  color: var(--color-fg);
+  background: var(--color-bg-subtle);
+}
+.App-tabs .ms-Pivot-link.is-selected {
+  color: var(--color-brand);
+}
+.App-tabs .ms-Pivot-linkContent {
+  white-space: nowrap;
+}
+
+/* ============================================================
+   Content area + list toolbar
+   ============================================================ */
+.App-content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.list-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-lg);
+  background: var(--color-bg-subtle);
+  border-bottom: 1px solid var(--color-stroke-subtle);
+}
+.list-toolbar-search {
+  flex: 1 1 120px;
+  min-width: 0;
+}
+.list-toolbar-filter {
+  flex: 1 1 120px;
+  min-width: 0;
+  max-width: 260px;
+}
+.list-toolbar-clear .ms-Button-icon {
   color: var(--color-fg-secondary);
 }
+.list-toolbar-clear:hover .ms-Button-icon {
+  color: var(--color-danger);
+}
 
-.ms-Pivot-link.is-selected {
-  color: var(--color-brand);
+.list-loading {
+  padding: var(--space-xl);
+  text-align: center;
+}
+
+.list-group-header {
+  padding: 6px var(--space-lg);
+  background: var(--color-bg-subtle);
+  border-top: 1px solid var(--color-stroke-subtle);
+  border-bottom: 1px solid var(--color-stroke-subtle);
+  font-size: 11px;
+  font-weight: var(--font-weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--color-fg-secondary);
 }
 
 /* ============================================================
    Action List
    ============================================================ */
 .App-Actions {
-  flex: 1;
-  overflow-y: auto;
-  padding: var(--space-sm) 0;
-}
-
-.App-Action-Header {
-  display: none;
+  padding: var(--space-xs) 0 var(--space-sm);
 }
 
 /* ---- Action Card Row ---- */
 .App-Action-Row {
   display: flex;
   align-items: center;
-  gap: var(--space-md);
-  padding: var(--space-md) var(--space-lg);
+  gap: var(--space-sm);
+  padding: var(--space-xs) var(--space-sm) var(--space-xs) var(--space-md);
   margin: var(--space-xs) var(--space-md);
+  min-height: 44px;
   background: var(--color-bg-card);
+  border: 1px solid transparent;
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-sm);
-  transition: box-shadow var(--duration-normal) var(--easing),
-              transform var(--duration-normal) var(--easing);
+  transition: box-shadow var(--duration-normal) var(--easing);
 }
 
 .App-Action-Row:hover {
   box-shadow: var(--shadow-md);
-  transform: translateY(-1px);
+}
+
+.App-Action-Row.is-selected {
+  border-color: var(--color-brand);
 }
 
 .App-Action-Icon {
@@ -207,14 +347,46 @@ body {
   border-radius: var(--radius-sm);
 }
 
-.App-Action-Element {
+.App-Action-Title {
   flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: var(--font-size-sm);
   color: var(--color-fg);
 }
+
+.App-Action-Warning {
+  flex-shrink: 0;
+  color: var(--color-danger);
+}
+
+/* Compact, fixed-width HTTP method badge */
+.App-Action-Method {
+  flex: 0 0 52px;
+  width: 52px;
+  overflow: hidden;
+  text-overflow: clip;
+  white-space: nowrap;
+  text-align: center;
+  padding: 1px 0;
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-subtle);
+  border: 1px solid var(--color-stroke);
+  color: var(--color-fg-secondary);
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.3px;
+}
+.App-Action-Method.method-get { color: var(--color-success); }
+.App-Action-Method.method-post { color: var(--color-info); }
+.App-Action-Method.method-patch,
+.App-Action-Method.method-put,
+.App-Action-Method.method-merge { color: var(--color-accent); }
+.App-Action-Method.method-delete { color: var(--color-danger); }
+.App-Action-Method.method-none { visibility: hidden; }
 
 .App-Action-Checkbox {
   flex-shrink: 0;
@@ -223,57 +395,37 @@ body {
   justify-content: center;
 }
 
-.App-Action-Select {
-  cursor: pointer;
-  font-size: 18px;
-  color: var(--color-brand);
-}
-
-/* ---- Inline action buttons ---- */
-.App-Action-Delete,
-.App-Action-Info,
-.App-Action-Favorite {
-  width: 28px;
-  height: 28px;
-  display: inline-flex;
+.App-Action-Buttons {
+  display: flex;
   align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  border-radius: var(--radius-sm);
   flex-shrink: 0;
-  transition: background var(--duration-fast) var(--easing),
-              color var(--duration-fast) var(--easing);
 }
 
-.App-Action-Delete {
-  color: var(--color-fg-muted);
-}
-.App-Action-Delete:hover {
-  background: var(--color-danger-bg);
-  color: var(--color-danger);
-}
-
-.App-Action-Info {
-  color: var(--color-brand);
-}
-.App-Action-Info:hover {
-  background: var(--color-info-bg);
-  color: var(--color-brand-hover);
-}
-
-.App-Action-Favorite {
-  color: #f5a623;
-}
-.App-Action-Favorite:hover {
-  background: var(--color-warning-bg);
-}
+/* ---- Inline action buttons (IconButton) ---- */
+.App-Action-Select .ms-Button-icon { color: var(--color-brand); }
+.App-Action-Info .ms-Button-icon { color: var(--color-brand); }
+.App-Action-Configure .ms-Button-icon { color: var(--color-fg-secondary); }
+.App-Action-Favorite .ms-Button-icon { color: var(--color-favorite); }
+.App-Action-Delete .ms-Button-icon { color: var(--color-fg-muted); }
+.App-Action-Delete:hover .ms-Button-icon { color: var(--color-danger); }
 
 /* ============================================================
-   Search Bar
+   Selection bar (sticky at the bottom while rows are selected)
    ============================================================ */
-.ms-SearchBox,
-.ms-TextField {
-  border-radius: var(--radius-sm);
+.selection-bar {
+  flex-shrink: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs) var(--space-sm);
+  padding: var(--space-sm) var(--space-lg);
+  background: var(--color-bg-card);
+  border-top: 1px solid var(--color-stroke);
+  box-shadow: 0 -4px 8px rgba(0, 0, 0, 0.08);
+}
+.selection-bar-count {
+  font-weight: var(--font-weight-semibold);
+  margin-right: auto;
 }
 
 /* ============================================================
@@ -284,19 +436,215 @@ body {
   50% { opacity: 0.4; }
 }
 
-.recording-active {
-  color: #ff4444 !important;
+.recording-active,
+.recording-active .ms-Button-icon {
+  color: var(--color-recording) !important;
+}
+.recording-active .ms-Button-icon {
   animation: recordingPulse 1.5s ease-in-out infinite;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .recording-active .ms-Button-icon,
+  .recording-dot {
+    animation: none;
+  }
+}
+
 /* ============================================================
-   Settings Panel
+   Settings
    ============================================================ */
 .settings-panel {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
-  padding: var(--space-xl);
+  overflow-x: hidden;
   background: var(--color-bg);
+}
+
+.settings-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-lg);
+  background: var(--color-bg);
+  border-bottom: 1px solid var(--color-stroke);
+}
+.settings-header-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.settings-title {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-fg);
+}
+
+.settings-hint {
+  color: var(--color-fg-secondary);
+}
+
+.settings-info-icon {
+  color: var(--color-brand);
+  font-size: 14px;
+  cursor: help;
+  border-radius: var(--radius-sm);
+}
+.settings-info-icon:focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 2px;
+}
+
+.settings-sections {
+  padding: var(--space-sm) var(--space-lg) var(--space-xl);
+}
+
+.settings-section {
+  border-bottom: 1px solid var(--color-stroke-subtle);
+}
+.settings-section:last-child {
+  border-bottom: none;
+}
+
+.settings-section-heading {
+  margin: 0;
+  font: inherit;
+}
+
+.settings-section-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  width: 100%;
+  padding: var(--space-md) 0;
+  border: none;
+  background: transparent;
+  color: var(--color-fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.settings-section-toggle:hover .settings-section-title {
+  color: var(--color-brand);
+}
+.settings-section-toggle:focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.settings-section-chevron {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--color-fg-secondary);
+  transition: transform var(--duration-normal) var(--easing);
+}
+.settings-section.is-expanded .settings-section-chevron {
+  transform: rotate(90deg);
+}
+
+.settings-section-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.settings-section-title {
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+}
+.settings-section-description {
+  font-size: var(--font-size-sm);
+  color: var(--color-fg-secondary);
+}
+
+.settings-section-body {
+  padding: 0 0 var(--space-lg) 20px;
+}
+
+.settings-subsection {
+  margin-top: var(--space-sm);
+  padding-top: var(--space-md);
+  border-top: 1px dashed var(--color-stroke);
+  scroll-margin-top: 64px;
+}
+.settings-subsection-title {
+  margin: 0 0 var(--space-xxs);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+}
+
+.settings-section {
+  scroll-margin-top: 64px;
+}
+
+.settings-placeholder {
+  padding-bottom: var(--space-sm);
+  border-bottom: 1px solid var(--color-stroke-subtle);
+}
+.settings-placeholder-key {
+  font-family: var(--font-family-mono);
+  font-size: 13px;
+}
+.settings-placeholder-chip {
+  flex-shrink: 0;
+  min-width: 100px;
+  padding: 2px 8px;
+  border: 1px solid var(--color-info);
+  border-radius: var(--radius-sm);
+  background: var(--color-info-bg);
+  color: var(--color-fg);
+  font-weight: var(--font-weight-semibold);
+  text-align: center;
+  white-space: nowrap;
+}
+
+/* ============================================================
+   Action details panel
+   ============================================================ */
+.details-panel {
+  font-size: var(--font-size-md);
+  line-height: 1.5;
+}
+.details-panel-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-xs);
+  margin-bottom: var(--space-sm);
+}
+.details-panel-section {
+  margin-bottom: var(--space-lg);
+}
+.details-panel-label {
+  margin: 0 0 var(--space-xs);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-fg-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.details-panel-scroll {
+  max-height: 300px;
+  overflow-y: auto;
+}
+.details-panel-code {
+  margin: 0;
+  padding: var(--space-sm);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-subtle);
+  color: var(--color-fg);
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-sm);
+  word-break: break-all;
+}
+.details-panel-code--raw {
+  white-space: pre-wrap;
+  max-height: 200px;
+  overflow-y: auto;
 }
 
 /* ============================================================
@@ -307,15 +655,32 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: var(--space-xxl);
+  gap: var(--space-xs);
+  padding: var(--space-xxl) var(--space-xl);
   text-align: center;
   color: var(--color-fg-secondary);
 }
 
 .empty-state-icon {
-  font-size: 48px;
+  font-size: 32px;
   color: var(--color-fg-muted);
-  margin-bottom: var(--space-lg);
+  margin-bottom: var(--space-sm);
+}
+
+.empty-state-title {
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-fg);
+}
+
+.empty-state-hint {
+  font-size: var(--font-size-sm);
+  max-width: 320px;
+}
+
+.empty-state-action {
+  margin-top: var(--space-xs);
+  font-size: var(--font-size-sm);
 }
 
 /* ============================================================
@@ -335,39 +700,10 @@ body {
 .badge-info    { background: var(--color-info-bg);    color: var(--color-info); }
 
 /* ============================================================
-   Cards
-   ============================================================ */
-.card {
-  padding: var(--space-lg);
-  border-radius: var(--radius-md);
-  background: var(--color-bg-card);
-  box-shadow: var(--shadow-sm);
-}
-.card:hover {
-  box-shadow: var(--shadow-md);
-}
-
-/* ============================================================
    Fluent UI Dark-Mode Overrides
+   MessageBars are deliberately not overridden: the inverted Fluent theme
+   already gives each severity its own dark background.
    ============================================================ */
-[data-theme="dark"] .ms-Pivot,
-[data-theme="dark"] .ms-Pivot-link {
-  background: var(--color-bg);
-  color: var(--color-fg-secondary);
-}
-[data-theme="dark"] .ms-Pivot-link.is-selected {
-  color: var(--color-brand);
-}
-[data-theme="dark"] .ms-Pivot-link:hover {
-  color: var(--color-fg);
-  background: var(--color-bg-subtle);
-}
-
-[data-theme="dark"] .ms-MessageBar {
-  background: var(--color-bg-card);
-  color: var(--color-fg);
-}
-
 [data-theme="dark"] .ms-TextField-fieldGroup {
   background: var(--color-bg-input);
   border-color: var(--color-stroke);
@@ -431,24 +767,18 @@ body {
 
 /* ---- Media query dark mode Fluent UI overrides ---- */
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .ms-Pivot,
-  :root:not([data-theme="light"]) .ms-Pivot-link {
-    background: var(--color-bg);
-    color: var(--color-fg-secondary);
-  }
-  :root:not([data-theme="light"]) .ms-Pivot-link.is-selected {
-    color: var(--color-brand);
-  }
-  :root:not([data-theme="light"]) .ms-MessageBar {
-    background: var(--color-bg-card);
-    color: var(--color-fg);
-  }
   :root:not([data-theme="light"]) .ms-TextField-fieldGroup {
     background: var(--color-bg-input);
     border-color: var(--color-stroke);
   }
   :root:not([data-theme="light"]) .ms-TextField-field {
     color: var(--color-fg);
+  }
+  :root:not([data-theme="light"]) .ms-Toggle-background {
+    background: var(--color-stroke);
+  }
+  :root:not([data-theme="light"]) .ms-Toggle.is-checked .ms-Toggle-background {
+    background: var(--color-brand);
   }
   :root:not([data-theme="light"]) .ms-Button--primary {
     background: var(--color-brand);
@@ -478,6 +808,22 @@ body {
   }
 }
 
+/* Disabled primary buttons must not keep the brand fill in dark mode */
+[data-theme="dark"] .ms-Button--primary.is-disabled,
+[data-theme="dark"] .ms-Button--default.is-disabled {
+  background: var(--color-bg-subtle);
+  color: var(--color-fg-muted);
+  border-color: var(--color-stroke-subtle);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .ms-Button--primary.is-disabled,
+  :root:not([data-theme="light"]) .ms-Button--default.is-disabled {
+    background: var(--color-bg-subtle);
+    color: var(--color-fg-muted);
+    border-color: var(--color-stroke-subtle);
+  }
+}
+
 /* ============================================================
    Utility Classes
    ============================================================ */
@@ -496,16 +842,31 @@ body {
 .gap-md { gap: var(--space-md); }
 .gap-lg { gap: var(--space-lg); }
 
-/* ============================================================
-   Hover message (legacy compat)
-   ============================================================ */
-.Hover-message {
-  display: none;
-}
-
 /* Placeholder text for ExpressionAwareTextField's contenteditable input */
 [contenteditable][data-placeholder]:empty::before {
   content: attr(data-placeholder);
   color: var(--color-fg-muted);
   pointer-events: none;
+}
+
+/* ---- Narrow side panel (360–420px): give titles the room ---- */
+@media (max-width: 420px) {
+  .App-header {
+    padding-left: var(--space-md);
+  }
+  .App-pagebar,
+  .list-toolbar,
+  .selection-bar {
+    padding-left: var(--space-md);
+    padding-right: var(--space-md);
+  }
+  .App-Action-Row {
+    gap: var(--space-xs);
+    margin: var(--space-xs) var(--space-sm);
+    padding-left: var(--space-sm);
+  }
+  .App-Action-Method {
+    flex-basis: 44px;
+    width: 44px;
+  }
 }
