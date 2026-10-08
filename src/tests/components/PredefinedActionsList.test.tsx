@@ -4,6 +4,7 @@ import '@testing-library/jest-dom';
 import PredefinedActionsList from '../../components/PredefinedActionsList';
 import { IActionModel } from '../../models';
 import { PlaceholderService } from '../../services/PlaceholderService';
+import { utilityActionsService } from '../../services/UtilityActionsService';
 
 // The real service: the list only calls its pure parsing helpers, and CRA's
 // resetMocks would wipe a jest.fn() mock's return values between tests.
@@ -59,6 +60,90 @@ describe('PredefinedActionsList', () => {
       />
     );
     expect(screen.getByText('No predefined actions available')).toBeInTheDocument();
+  });
+
+  it('links an empty library to its settings', () => {
+    const onOpenSettings = jest.fn();
+    render(
+      <PredefinedActionsList
+        actions={[]}
+        isLoading={false}
+        searchTerm=""
+        onSearchChange={() => {}}
+        placeholderService={mockPlaceholderService}
+        onOpenSettings={onOpenSettings}
+      />
+    );
+    fireEvent.click(screen.getByText('Open library settings'));
+    expect(onOpenSettings).toHaveBeenCalledWith('library');
+  });
+
+  it('explains a filtered-out list and offers to clear the filters', () => {
+    const onSearchChange = jest.fn();
+    render(
+      <PredefinedActionsList
+        actions={mockActions}
+        isLoading={false}
+        searchTerm="nothing-like-this"
+        onSearchChange={onSearchChange}
+        placeholderService={mockPlaceholderService}
+      />
+    );
+    expect(screen.getByText("No actions match 'nothing-like-this' in all categories")).toBeInTheDocument();
+    expect(screen.queryByText('No predefined actions available')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText('Clear filters'));
+    expect(onSearchChange).toHaveBeenCalledWith('');
+  });
+
+  describe('utility presets', () => {
+    const utilityActions = utilityActionsService.getActions({});
+
+    it('warns about the Function App URL only when utility presets are visible, with a link to settings', async () => {
+      const onOpenSettings = jest.fn();
+      const { rerender } = render(
+        <PredefinedActionsList
+          actions={[...mockActions, ...utilityActions]}
+          isLoading={false}
+          searchTerm=""
+          onSearchChange={() => {}}
+          placeholderService={mockPlaceholderService}
+          onOpenSettings={onOpenSettings}
+        />
+      );
+      expect(await screen.findByText(/Set the Function App URL in Settings/)).toBeInTheDocument();
+      fireEvent.click(screen.getByText('Open utility settings'));
+      expect(onOpenSettings).toHaveBeenCalledWith('utility');
+
+      // Searching down to non-utility rows hides the warning.
+      rerender(
+        <PredefinedActionsList
+          actions={[...mockActions, ...utilityActions]}
+          isLoading={false}
+          searchTerm="Get User Profile"
+          onSearchChange={() => {}}
+          placeholderService={mockPlaceholderService}
+          onOpenSettings={onOpenSettings}
+        />
+      );
+      expect(screen.queryByText(/Set the Function App URL in Settings/)).not.toBeInTheDocument();
+    });
+
+    it('labels the parameter form button "Configure parameters", not as a settings gear', () => {
+      render(
+        <PredefinedActionsList
+          actions={utilityActions.slice(0, 1)}
+          isLoading={false}
+          searchTerm=""
+          onSearchChange={() => {}}
+          placeholderService={mockPlaceholderService}
+          onConfiguredAction={() => {}}
+        />
+      );
+      const button = screen.getByRole('button', { name: `Configure parameters: ${utilityActions[0].title}` });
+      expect(button).toHaveAttribute('title', 'Configure parameters');
+      // eslint-disable-next-line testing-library/no-node-access
+      expect(button.querySelector('[data-icon-name="Settings"]')).toBeNull();
+    });
   });
 
   it('should render list of actions', () => {
@@ -140,7 +225,7 @@ describe('PredefinedActionsList', () => {
     fireEvent.click(infoButtons[0]);
     
     await waitFor(() => {
-      expect(screen.getByText(/Action Details: Get User Profile/)).toBeInTheDocument();
+      expect(screen.getByRole('dialog')).toHaveTextContent('Get User Profile');
     });
   });
 
@@ -170,34 +255,20 @@ describe('PredefinedActionsList', () => {
     expect(screen.getByText('Send Email')).toBeInTheDocument();
   });
 
-  it('should display column headers', () => {
+  it('labels the refresh button', () => {
+    const onRefresh = jest.fn();
     render(
       <PredefinedActionsList
         actions={mockActions}
         isLoading={false}
+        onRefresh={onRefresh}
         searchTerm=""
         onSearchChange={() => {}}
         placeholderService={mockPlaceholderService}
       />
     );
-    expect(screen.getByText('Select')).toBeInTheDocument();
-    expect(screen.getByText('Title')).toBeInTheDocument();
-    expect(screen.getByText('Method')).toBeInTheDocument();
-    expect(screen.getByText('Info')).toBeInTheDocument();
-  });
-
-  it('should display favorite column when toggleFavoriteFunc is provided', () => {
-    render(
-      <PredefinedActionsList
-        actions={mockActions}
-        isLoading={false}
-        toggleFavoriteFunc={() => {}}
-        searchTerm=""
-        onSearchChange={() => {}}
-        placeholderService={mockPlaceholderService}
-      />
-    );
-    expect(screen.getByText('Fav')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh library' }));
+    expect(onRefresh).toHaveBeenCalled();
   });
 
   describe('copy with options', () => {

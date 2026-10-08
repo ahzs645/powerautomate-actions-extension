@@ -2,24 +2,12 @@
 // action is pasted, so the user fills in a form instead of hand-editing JSON in
 // the designer.
 
+import { DefaultButton, PrimaryButton, Dropdown, IDropdownOption, MessageBar, MessageBarType, Panel, PanelType, Stack, Text, TextField, Toggle } from '@fluentui/react';
 import { useCallback, useMemo, useState } from 'react';
-import {
-    DefaultButton,
-    Dropdown,
-    IDropdownOption,
-    MessageBar,
-    MessageBarType,
-    Panel,
-    PanelType,
-    PrimaryButton,
-    Stack,
-    Text,
-    TextField,
-    Toggle,
-} from '@fluentui/react';
 import { IActionModel } from '../models';
 import { IUtilityAction, IUtilityParameter } from '../models/IUtilityCatalog';
 import { IUtilityFunctionConfig, utilityActionsService } from '../services/UtilityActionsService';
+import { POPUP_PANEL_WIDTH, popupPanelStyles } from './ActionDetailsPanel';
 
 export interface IUtilityActionFormProps {
     action: IUtilityAction | null;
@@ -42,6 +30,25 @@ const YES_NO_PARAMETERS = new Set([
     'fit_to_page',
     'text_pdf_to_jpg',
 ]);
+
+/** Words that read better upper-cased in a label. */
+const ACRONYMS = new Set(['url', 'uri', 'id', 'ids', 'pdf', 'json', 'csv', 'xml', 'html', 'api', 'jpg', 'png', 'docx', 'xlsx', 'ocr', 'utc', 'dpi']);
+
+/** "source_url" -> "Source URL", "fileContent" -> "File content". */
+export function humanizeParameterName(name: string): string {
+    const words = name
+        .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+        .split(/[_\s-]+/)
+        .filter(Boolean)
+        .map(word => word.toLowerCase());
+    if (words.length === 0) { return name; }
+    return words
+        .map((word, index) => {
+            if (ACRONYMS.has(word)) { return word === 'ids' ? 'IDs' : word.toUpperCase(); }
+            return index === 0 ? word.charAt(0).toUpperCase() + word.slice(1) : word;
+        })
+        .join(' ');
+}
 
 function toEditorValue(value: any): string {
     if (value === null || value === undefined) { return ''; }
@@ -176,7 +183,8 @@ const UtilityActionForm: React.FC<IUtilityActionFormProps> = ({
             return (
                 <Dropdown
                     key={parameter.name}
-                    label={parameter.name}
+                    label={humanizeParameterName(parameter.name)}
+                    title={parameter.name}
                     selectedKey={value || 'NO'}
                     options={BOOLEAN_OPTIONS}
                     onChange={(_e, option) => setValue(parameter.name, (option?.key as string) || '')}
@@ -190,7 +198,8 @@ const UtilityActionForm: React.FC<IUtilityActionFormProps> = ({
             return (
                 <Toggle
                     key={parameter.name}
-                    label={parameter.name}
+                    label={humanizeParameterName(parameter.name)}
+                    title={parameter.name}
                     checked={value === 'true'}
                     onText="true"
                     offText="false"
@@ -208,7 +217,9 @@ const UtilityActionForm: React.FC<IUtilityActionFormProps> = ({
         return (
             <TextField
                 key={parameter.name}
-                label={`${parameter.name}${parameter.required ? ' *' : ''}`}
+                label={humanizeParameterName(parameter.name)}
+                required={parameter.required}
+                title={parameter.name}
                 value={value}
                 multiline={isMultiline}
                 rows={isMultiline ? 3 : undefined}
@@ -230,7 +241,8 @@ const UtilityActionForm: React.FC<IUtilityActionFormProps> = ({
             isOpen={isOpen}
             onDismiss={handleDismiss}
             type={PanelType.custom}
-            customWidth="480px"
+            customWidth={POPUP_PANEL_WIDTH}
+            styles={popupPanelStyles}
             headerText={action.title}
             closeButtonAriaLabel="Close"
             onRenderFooterContent={() => (

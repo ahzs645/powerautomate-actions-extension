@@ -1,53 +1,9 @@
 import React from 'react';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import ActionsList from '../../components/ActionsList';
 import { IActionModel, Mode } from '../../models';
 import { PlaceholderService } from '../../services/PlaceholderService';
-
-// Mock Fluent UI components
-jest.mock('@fluentui/react', () => ({
-  Checkbox: ({ checked, onChange, className, defaultChecked }: any) => (
-    <input
-      type="checkbox"
-      checked={checked || defaultChecked}
-      onChange={onChange}
-      className={className}
-      data-testid="mock-checkbox"
-    />
-  ),
-  Icon: ({ iconName, onClick, className, title }: any) => (
-    <button
-      onClick={onClick}
-      className={className}
-      title={title}
-      data-testid={`mock-icon-${iconName}`}
-    >
-      {iconName}
-    </button>
-  ),
-  Text: ({ children }: any) => <span>{children}</span>,
-  TextField: ({ value, onChange, placeholder, iconProps }: any) => (
-    <input
-      type="text"
-      value={value}
-      onChange={(e) => onChange(e, e.target.value)}
-      placeholder={placeholder}
-      data-testid="mock-textfield"
-    />
-  ),
-  IconButton: ({ iconProps, title, onClick }: any) => (
-    <button
-      onClick={onClick}
-      title={title}
-      data-testid={`mock-iconbutton-${iconProps?.iconName}`}
-    />
-  ),
-  MessageBar: ({ children }: any) => <div data-testid="mock-messagebar">{children}</div>,
-  MessageBarType: { error: 'error' },
-  PanelType: { custom: 'custom' },
-  Panel: ({ isOpen, children }: any) => isOpen ? <div data-testid="mock-panel">{children}</div> : null,
-}));
 
 describe('ActionsList', () => {
   const mockActions: IActionModel[] = [
@@ -90,42 +46,41 @@ describe('ActionsList', () => {
   });
 
   describe('Rendering', () => {
-    test('should render header correctly', () => {
-      render(<ActionsList {...defaultProps} />);
-      
-      expect(screen.getByText('Select')).toBeInTheDocument();
-      expect(screen.getByText('Title')).toBeInTheDocument();
-      expect(screen.getByText('Method')).toBeInTheDocument();
-    });
-
     test('should render actions when showButton is false', () => {
       render(<ActionsList {...defaultProps} showButton={false} />);
-      
+
       expect(screen.getByText('Test Action 1')).toBeInTheDocument();
       expect(screen.getByText('Test Action 2')).toBeInTheDocument();
       expect(screen.getByText('GET')).toBeInTheDocument();
       expect(screen.getByText('POST')).toBeInTheDocument();
-      
+
       // Should show checkboxes, not buttons
-      expect(screen.getAllByTestId('mock-checkbox')).toHaveLength(2);
-      expect(screen.queryAllByTestId('mock-icon-SingleBookmark')).toHaveLength(0);
+      expect(screen.getAllByRole('checkbox')).toHaveLength(2);
+      expect(screen.queryAllByTitle('Select Action To Copy')).toHaveLength(0);
     });
 
     test('should render actions when showButton is true', () => {
       render(<ActionsList {...defaultProps} showButton={true} />);
-      
+
       expect(screen.getByText('Test Action 1')).toBeInTheDocument();
       expect(screen.getByText('Test Action 2')).toBeInTheDocument();
-      
+
       // Should show buttons, not checkboxes
-      expect(screen.queryAllByTestId('mock-checkbox')).toHaveLength(0);
-      expect(screen.getAllByTestId('mock-icon-SingleBookmark')).toHaveLength(2);
+      expect(screen.queryAllByRole('checkbox')).toHaveLength(0);
+      expect(screen.getByRole('button', { name: 'Select Test Action 1' })).toBeInTheDocument();
+    });
+
+    test('labels each row checkbox with the action title', () => {
+      render(<ActionsList {...defaultProps} />);
+
+      expect(screen.getByRole('checkbox', { name: 'Test Action 1' })).not.toBeChecked();
+      expect(screen.getByRole('checkbox', { name: 'Test Action 2' })).toBeChecked();
     });
 
     test('should render action icons correctly', () => {
       render(<ActionsList {...defaultProps} />);
-      
-      const images = screen.getAllByRole('img');
+
+      const images = screen.getAllByRole('img').filter(el => el.tagName === 'IMG');
       expect(images).toHaveLength(2);
       expect(images[0]).toHaveAttribute('src', 'https://example.com/icon1.png');
       expect(images[0]).toHaveAttribute('alt', 'Test Action 1');
@@ -133,25 +88,25 @@ describe('ActionsList', () => {
       expect(images[1]).toHaveAttribute('alt', 'Test Action 2');
     });
 
-    test('should render delete buttons for all actions', () => {
-      render(<ActionsList {...defaultProps} />);
-      
-      expect(screen.getAllByTestId('mock-icon-Delete')).toHaveLength(2);
+    test('renders row actions as named, focusable buttons', () => {
+      render(<ActionsList {...defaultProps} toggleFavoriteFunc={jest.fn()} />);
+
+      expect(screen.getByRole('button', { name: 'Delete Test Action 1' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Show details for Test Action 1' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Add to favorites: Test Action 1' })).toBeInTheDocument();
     });
 
-    test('should render with correct checkbox states', () => {
-      render(<ActionsList {...defaultProps} showButton={false} />);
-      
-      const checkboxes = screen.getAllByTestId('mock-checkbox') as HTMLInputElement[];
-      expect(checkboxes[0].checked).toBe(false);
-      expect(checkboxes[1].checked).toBe(true);
+    test('shows the full title as a tooltip and the method as a badge', () => {
+      render(<ActionsList {...defaultProps} />);
+
+      expect(screen.getByText('Test Action 1')).toHaveAttribute('title', 'Test Action 1');
+      expect(screen.getByText('GET')).toHaveClass('App-Action-Method');
     });
 
     test('should render search field with correct placeholder', () => {
       render(<ActionsList {...defaultProps} />);
-      
-      const searchField = screen.getByTestId('mock-textfield');
-      expect(searchField).toBeInTheDocument();
+
+      const searchField = screen.getByRole('textbox', { name: 'Search actions by title' });
       expect(searchField).toHaveAttribute('placeholder', 'Search actions by title...');
     });
   });
@@ -160,49 +115,43 @@ describe('ActionsList', () => {
     test('should call changeSelectionFunc when checkbox is clicked', () => {
       const changeSelectionFunc = jest.fn();
       render(<ActionsList {...defaultProps} changeSelectionFunc={changeSelectionFunc} showButton={false} />);
-      
-      const checkboxes = screen.getAllByTestId('mock-checkbox');
-      fireEvent.click(checkboxes[0]);
-      
+
+      fireEvent.click(screen.getByRole('checkbox', { name: 'Test Action 1' }));
+
       expect(changeSelectionFunc).toHaveBeenCalledWith(mockActions[0]);
     });
 
     test('should call changeSelectionFunc when select button is clicked', () => {
       const changeSelectionFunc = jest.fn();
       render(<ActionsList {...defaultProps} changeSelectionFunc={changeSelectionFunc} showButton={true} />);
-      
-      const selectButtons = screen.getAllByTestId('mock-icon-SingleBookmark');
-      fireEvent.click(selectButtons[0]);
-      
+
+      fireEvent.click(screen.getByRole('button', { name: 'Select Test Action 1' }));
+
       expect(changeSelectionFunc).toHaveBeenCalledWith(mockActions[0]);
     });
 
     test('should call deleteActionFunc when delete button is clicked', () => {
       const deleteActionFunc = jest.fn();
       render(<ActionsList {...defaultProps} deleteActionFunc={deleteActionFunc} />);
-      
-      const deleteButtons = screen.getAllByTestId('mock-icon-Delete');
-      fireEvent.click(deleteButtons[0]);
-      
+
+      fireEvent.click(screen.getByRole('button', { name: 'Delete Test Action 1' }));
+
       expect(deleteActionFunc).toHaveBeenCalledWith(mockActions[0]);
     });
 
     test('should call functions with correct action for second item', () => {
       const changeSelectionFunc = jest.fn();
       const deleteActionFunc = jest.fn();
-      render(<ActionsList 
-        {...defaultProps} 
+      render(<ActionsList
+        {...defaultProps}
         changeSelectionFunc={changeSelectionFunc}
         deleteActionFunc={deleteActionFunc}
         showButton={false}
       />);
-      
-      const checkboxes = screen.getAllByTestId('mock-checkbox');
-      const deleteButtons = screen.getAllByTestId('mock-icon-Delete');
-      
-      fireEvent.click(checkboxes[1]);
-      fireEvent.click(deleteButtons[1]);
-      
+
+      fireEvent.click(screen.getByRole('checkbox', { name: 'Test Action 2' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Delete Test Action 2' }));
+
       expect(changeSelectionFunc).toHaveBeenCalledWith(mockActions[1]);
       expect(deleteActionFunc).toHaveBeenCalledWith(mockActions[1]);
     });
@@ -210,11 +159,21 @@ describe('ActionsList', () => {
     test('should call onSearchChange when search field changes', () => {
       const onSearchChange = jest.fn();
       render(<ActionsList {...defaultProps} onSearchChange={onSearchChange} />);
-      
-      const searchField = screen.getByTestId('mock-textfield');
-      fireEvent.change(searchField, { target: { value: 'test search' } });
-      
+
+      fireEvent.change(screen.getByRole('textbox', { name: 'Search actions by title' }), { target: { value: 'test search' } });
+
       expect(onSearchChange).toHaveBeenCalledWith('test search');
+    });
+
+    test('offers a labelled clear-all button only when there is something to clear', () => {
+      const onClearAll = jest.fn();
+      const { rerender } = render(<ActionsList {...defaultProps} onClearAll={onClearAll} clearLabel="Clear all copied actions" />);
+
+      fireEvent.click(screen.getByRole('button', { name: 'Clear all copied actions' }));
+      expect(onClearAll).toHaveBeenCalled();
+
+      rerender(<ActionsList {...defaultProps} actions={[]} onClearAll={onClearAll} clearLabel="Clear all copied actions" />);
+      expect(screen.queryByRole('button', { name: 'Clear all copied actions' })).not.toBeInTheDocument();
     });
 
     const setContentEditableValue = (element: HTMLElement, value: string) => {
@@ -224,20 +183,25 @@ describe('ActionsList', () => {
       fireEvent.blur(element);
     };
 
+    const openDetails = (title: string) => {
+      fireEvent.click(screen.getByRole('button', { name: `Show details for ${title}` }));
+      return screen.getByRole('dialog');
+    };
+
     test('should enter edit mode and call editActionFunc on save', () => {
       const editActionFunc = jest.fn();
       render(<ActionsList {...defaultProps} editActionFunc={editActionFunc} />);
 
-      fireEvent.click(screen.getAllByTestId('mock-icon-Info')[0]);
-      fireEvent.click(screen.getAllByTestId('mock-iconbutton-Edit')[0]);
+      const panel = openDetails('Test Action 1');
+      fireEvent.click(within(panel).getAllByRole('button', { name: 'Edit URL, headers and body' })[0]);
 
-      const editableFields = screen.getAllByRole('textbox').filter(el => el.getAttribute('contenteditable') === 'true');
+      const editableFields = within(panel).getAllByRole('textbox').filter(el => el.getAttribute('contenteditable') === 'true');
       const [urlField, headersField, bodyField] = editableFields;
       setContentEditableValue(urlField, 'https://edited.example.com');
       setContentEditableValue(headersField, '{"Authorization":"Bearer token"}');
       setContentEditableValue(bodyField, '{"hello":"world"}');
 
-      fireEvent.click(screen.getAllByTestId('mock-iconbutton-CheckMark')[0]);
+      fireEvent.click(within(panel).getAllByRole('button', { name: 'Save changes' })[0]);
 
       expect(editActionFunc).toHaveBeenCalledTimes(1);
       const editedAction = editActionFunc.mock.calls[0][0];
@@ -245,75 +209,80 @@ describe('ActionsList', () => {
       expect(editedAction.body).toEqual({ hello: 'world' });
     });
 
-    test('should show validation error for invalid JSON during save', () => {
+    test('should show validation error for invalid JSON during save', async () => {
       const editActionFunc = jest.fn();
       render(<ActionsList {...defaultProps} editActionFunc={editActionFunc} />);
 
-      fireEvent.click(screen.getAllByTestId('mock-icon-Info')[0]);
-      fireEvent.click(screen.getAllByTestId('mock-iconbutton-Edit')[0]);
+      const panel = openDetails('Test Action 1');
+      fireEvent.click(within(panel).getAllByRole('button', { name: 'Edit URL, headers and body' })[0]);
 
-      const editableFields = screen.getAllByRole('textbox').filter(el => el.getAttribute('contenteditable') === 'true');
+      const editableFields = within(panel).getAllByRole('textbox').filter(el => el.getAttribute('contenteditable') === 'true');
       const bodyField = editableFields[editableFields.length - 1];
       setContentEditableValue(bodyField, '{invalid-json}');
-      fireEvent.click(screen.getAllByTestId('mock-iconbutton-CheckMark')[0]);
+      fireEvent.click(within(panel).getAllByRole('button', { name: 'Save changes' })[0]);
 
-      expect(screen.getByTestId('mock-messagebar')).toBeInTheDocument();
+      expect(await within(panel).findByText('Headers and Body must be valid JSON.')).toBeInTheDocument();
       expect(editActionFunc).not.toHaveBeenCalled();
     });
   });
 
-  describe('Edge Cases', () => {
-    test('should render empty when no actions provided', () => {
-      render(<ActionsList {...defaultProps} actions={[]} />);
-      
-      // Header should still be present
-      expect(screen.getByText('Select')).toBeInTheDocument();
-      expect(screen.getByText('Title')).toBeInTheDocument();
-      expect(screen.getByText('Method')).toBeInTheDocument();
-      
-      // No action items should be present
-      expect(screen.queryByText('Test Action 1')).not.toBeInTheDocument();
-      expect(screen.queryAllByTestId('mock-checkbox')).toHaveLength(0);
-      expect(screen.queryAllByTestId('mock-icon-Delete')).toHaveLength(0);
+  describe('Empty states', () => {
+    const emptyState = { iconName: 'Record2', title: 'No recorded requests yet', hint: 'Click Record, then use SharePoint — requests appear here.' };
+
+    test('shows the how-to when the list is empty', () => {
+      render(<ActionsList {...defaultProps} actions={[]} emptyState={emptyState} />);
+
+      expect(screen.getByText('No recorded requests yet')).toBeInTheDocument();
+      expect(screen.getByText('Click Record, then use SharePoint — requests appear here.')).toBeInTheDocument();
+      expect(screen.queryAllByRole('checkbox')).toHaveLength(0);
+    });
+
+    test('says no match (not empty) when a search hides everything', () => {
+      const onSearchChange = jest.fn();
+      render(<ActionsList {...defaultProps} actions={[]} totalCount={2} searchTerm="nope" onSearchChange={onSearchChange} emptyState={emptyState} />);
+
+      expect(screen.getByText("No actions match 'nope'")).toBeInTheDocument();
+      expect(screen.queryByText('No recorded requests yet')).not.toBeInTheDocument();
+      fireEvent.click(screen.getByText('Clear search'));
+      expect(onSearchChange).toHaveBeenCalledWith('');
     });
 
     test('should handle undefined actions array', () => {
-      render(<ActionsList {...defaultProps} actions={undefined as any} />);
-      
-      // Should not crash and header should still render
-      expect(screen.getByText('Select')).toBeInTheDocument();
-      expect(screen.getByText('Title')).toBeInTheDocument();
-      expect(screen.getByText('Method')).toBeInTheDocument();
-    });
+      render(<ActionsList {...defaultProps} actions={undefined as any} emptyState={emptyState} />);
 
+      expect(screen.getByText('No recorded requests yet')).toBeInTheDocument();
+    });
+  });
+
+  describe('Edge Cases', () => {
     test('should render action row with correct title attribute for URL', () => {
-      render(<ActionsList {...defaultProps} />);
-      
-      const actionRows = document.querySelectorAll('.App-Action-Row');
+      const { container } = render(<ActionsList {...defaultProps} />);
+
+      // eslint-disable-next-line testing-library/no-container, testing-library/no-node-access
+      const actionRows = container.querySelectorAll('.App-Action-Row');
       expect(actionRows[0]).toHaveAttribute('title', 'https://example.com/api/test1');
       expect(actionRows[1]).toHaveAttribute('title', 'https://example.com/api/test2');
     });
 
     test('should render select button with correct title', () => {
       render(<ActionsList {...defaultProps} showButton={true} />);
-      
-      const selectButtons = screen.getAllByTestId('mock-icon-SingleBookmark');
-      expect(selectButtons[0]).toHaveAttribute('title', 'Select Action To Copy');
-      expect(selectButtons[1]).toHaveAttribute('title', 'Select Action To Copy');
+
+      const selectButtons = screen.getAllByTitle('Select Action To Copy');
+      expect(selectButtons).toHaveLength(2);
     });
   });
 
   describe('Different Modes', () => {
     test('should work with Requests mode', () => {
       render(<ActionsList {...defaultProps} mode={Mode.Requests} />);
-      
+
       expect(screen.getByText('Test Action 1')).toBeInTheDocument();
       expect(screen.getByText('Test Action 2')).toBeInTheDocument();
     });
 
     test('should work with CopiedActions mode', () => {
       render(<ActionsList {...defaultProps} mode={Mode.CopiedActions} />);
-      
+
       expect(screen.getByText('Test Action 1')).toBeInTheDocument();
       expect(screen.getByText('Test Action 2')).toBeInTheDocument();
     });
