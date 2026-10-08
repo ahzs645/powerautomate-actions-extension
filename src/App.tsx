@@ -755,12 +755,14 @@ function App(initialState?: IInitialState | undefined) {
 
   const detectedPage = useMemo(() => {
     if (isV3PowerAutomateEditor) { return 'Modern designer'; }
-    if (isPowerAutomatePage && isFlowPage) { return 'Classic designer'; }
+    // The classic designer has no marker of its own: a flow URL, or the
+    // user's "Classic Power Automate Editor" override, identifies it.
+    if (isPowerAutomatePage && (isFlowPage || settings?.isClassicPowerAutomatePage === true)) { return 'Classic designer'; }
     if (isPowerAutomatePage) { return 'Power Automate'; }
     if (isRecordingPage) { return settings?.isRecordingPage === true ? 'Recording page' : 'SharePoint page'; }
     if (hasActionsOnPageToCopy) { return 'Page with actions'; }
     return 'Other';
-  }, [isV3PowerAutomateEditor, isPowerAutomatePage, isFlowPage, isRecordingPage, hasActionsOnPageToCopy, settings?.isRecordingPage]);
+  }, [isV3PowerAutomateEditor, isPowerAutomatePage, isFlowPage, isRecordingPage, hasActionsOnPageToCopy, settings?.isRecordingPage, settings?.isClassicPowerAutomatePage]);
 
   const recordingLabel = isRecording
     ? (recordingTimeLeft ? `Stop recording (${formatTimeLeft(recordingTimeLeft)} left)` : 'Stop recording')

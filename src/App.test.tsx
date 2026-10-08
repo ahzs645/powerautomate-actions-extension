@@ -396,6 +396,12 @@ describe('App', () => {
       expect(await screen.findByText('No recorded requests yet')).toBeInTheDocument();
     });
 
+    test('names a page forced to the classic editor "Classic designer"', async () => {
+      storedSettings = { isClassicPowerAutomatePage: true, isRecordingPage: false, isModernPowerAutomatePage: false };
+      renderApp();
+      expect(await screen.findByText('Classic designer')).toBeInTheDocument();
+    });
+
     test('does not offer Clear on the Library tab', async () => {
       storedSettings = { loadDefaultPredefinedActions: false };
       renderApp({ isRecordingPage: true });
