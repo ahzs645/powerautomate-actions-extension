@@ -1,10 +1,11 @@
 import { MessageBarType } from '@fluentui/react/lib/MessageBar';
 import JSZip from 'jszip';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useMessageBar } from '../../components/shared/Messages';
+import { useStatusMessages } from '../flow-editor/useStatusMessages';
 import { useApiProviderContext } from '../../services/ApiProvider';
-import { getFlowUrl } from '../flow-editor/useFlowEditor';
+import { getFlowUrl } from '../flow-editor/flowPersistence';
 import {
+  fetchEnvironmentName,
   FlowSummary,
   getFlowDefinition,
   listFlows,
@@ -67,8 +68,7 @@ async function mapWithConcurrency<T, R>(
 
 export const useFlowsList = () => {
   const api = useApiProviderContext();
-  const messageBar = useMessageBar();
-  const { setMessages } = messageBar;
+  const { messages, show: showMessage, dismiss: dismissMessage } = useStatusMessages();
 
   const envId = useMemo(
     () => new URLSearchParams(window.location.search).get('envId'),
@@ -80,18 +80,13 @@ export const useFlowsList = () => {
   const [progress, setProgress] = useState<BulkProgress | null>(null);
   const hasFetchedRef = useRef<boolean>(false);
 
+  const [environmentName, setEnvironmentName] = useState<string | null>(null);
+
   const addMessage = useCallback(
     (msg: string, type: MessageBarType = MessageBarType.success) => {
-      setMessages([
-        {
-          key: Date.now().toString(),
-          messageBarType: type,
-          isMultiline: false,
-          children: msg,
-        },
-      ]);
+      showMessage(msg, type);
     },
-    [setMessages]
+    [showMessage]
   );
 
   const loadFlows = useCallback(async () => {
@@ -129,6 +124,8 @@ export const useFlowsList = () => {
     }
     hasFetchedRef.current = true;
     loadFlows();
+    fetchEnvironmentName(api, envId).then(setEnvironmentName);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [envId, api.isApiReady, loadFlows]);
 
   const fetchDefinition = useCallback(
@@ -243,6 +240,8 @@ export const useFlowsList = () => {
     downloadFlow,
     downloadFlowsAsZip,
     openInEditor,
-    ...messageBar,
+    environmentName,
+    messages,
+    dismissMessage,
   };
 };

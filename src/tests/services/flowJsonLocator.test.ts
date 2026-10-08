@@ -1,4 +1,4 @@
-import { findActionRange } from '../../features/flow-editor/flowJsonLocator';
+import { findActionRange, findPointerRange } from '../../features/flow-editor/flowJsonLocator';
 
 // The action name deliberately appears as a runAfter key BEFORE its own
 // definition, which is the case a naive `"name":` search gets wrong.
@@ -69,5 +69,46 @@ describe('findActionRange', () => {
     const range = findActionRange(JSON_TEXT, 'Read_the_Status')!;
     const line = JSON_TEXT.split('\n')[range.startLine - 1];
     expect(line.slice(range.startColumn - 1)).toContain('"Read_the_Status"');
+  });
+});
+
+describe('findPointerRange', () => {
+  const text = JSON.stringify(
+    {
+      $schema: 'x',
+      definition: {
+        actions: {
+          'a/b': { type: 'Compose', inputs: ['zero', { deep: true }] },
+          Send: { type: 'Http', inputs: { method: 'GET', note: 'brace } in "string"' } },
+        },
+      },
+    },
+    null,
+    2
+  );
+
+  it('finds an object member including its key', () => {
+    const range = findPointerRange(text, '/definition/actions/Send/inputs')!;
+    expect(range.exact).toBe(true);
+    expect(range.text.startsWith('"inputs": {')).toBe(true);
+    expect(JSON.parse(`{${range.text}}`).inputs.method).toBe('GET');
+  });
+
+  it('unescapes ~1 and walks into arrays', () => {
+    const range = findPointerRange(text, '/definition/actions/a~1b/inputs/1/deep')!;
+    expect(range.exact).toBe(true);
+    expect(range.text).toBe('"deep": true');
+    expect(text.split('\n')[range.startLine - 1]).toContain('"deep": true');
+  });
+
+  it('falls back to the deepest existing ancestor', () => {
+    const range = findPointerRange(text, '/definition/actions/Send/inputs/uri')!;
+    expect(range.exact).toBe(false);
+    expect(range.text.startsWith('"inputs"')).toBe(true);
+  });
+
+  it('returns the whole document for the root pointer and null for empty text', () => {
+    expect(findPointerRange(text, '')!.text).toBe(text);
+    expect(findPointerRange('', '/a')).toBeNull();
   });
 });

@@ -1,8 +1,20 @@
-import { MessageBarType } from "@fluentui/react/lib/MessageBar";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useMessageBar } from "../../components/shared/Messages";
-import { useApiProviderContext } from "../../services/ApiProvider";
-import { FlowError } from "./types";
+import { MessageBarType } from '@fluentui/react/lib/MessageBar';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useApiProviderContext } from '../../services/ApiProvider';
+import { SchemaValidator } from '../../services/SchemaValidator';
+import {
+  documentFromFlowResponse,
+  FlowTarget,
+  getFlowUrl,
+  parseEditorText,
+  selectSaveStrategy,
+  toEditorText,
+} from './flowPersistence';
+import { runFlowCheckers, summarizeValidation, ValidationReport } from './flowValidation';
+import { fetchEnvironmentName } from '../flows-list/flowsApi';
+import { useStatusMessages } from './useStatusMessages';
+
+export { getFlowUrl } from './flowPersistence';
 
 const DEBUG = true;
 
@@ -18,378 +30,201 @@ function debugError(...args: any[]) {
   }
 }
 
+export interface FlowEnvironmentInfo {
+  id: string;
+  /** Friendly name when the environment lookup succeeded. */
+  displayName?: string;
+}
+
+export type SaveOutcome = { ok: true; serverText: string } | { ok: false };
+
+export type BusyState = null | 'loading' | 'saving' | 'publishing' | 'validating';
+
+const TONE_TO_TYPE = {
+  success: MessageBarType.success,
+  warning: MessageBarType.warning,
+  error: MessageBarType.error,
+} as const;
+
 export const useFlowEditor = () => {
-  const editorSchema = "https://power-automate-toolkit.local/flow-editor.json#";
-  const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [validationPaneIsOpen, setValidationPaneIsOpen] = useState<boolean>(false);
-  const hasFetchedRef = useRef<boolean>(false);
-
-  const [validationResult, setValidationResult] = useState<{
-    errors: FlowError[];
-    warnings: FlowError[];
-  }>({ errors: [], warnings: [] });
-
   const api = useApiProviderContext();
-  const query = new URLSearchParams(window.location.search);
+  const { envId, flowId } = useMemo(() => {
+    const query = new URLSearchParams(window.location.search);
+    return { envId: query.get('envId'), flowId: query.get('flowId') };
+  }, []);
+  const target: FlowTarget | null = envId && flowId ? { envId, flowId } : null;
 
-  const envId = query.get("envId");
-  const flowId = query.get("flowId");
+  const { messages, show: showMessage, dismiss: dismissMessage } = useStatusMessages();
+  const [busy, setBusy] = useState<BusyState>(null);
+  const [name, setName] = useState('');
+  const [environment, setEnvironment] = useState<FlowEnvironmentInfo | null>(
+    envId ? { id: envId } : null
+  );
+  /** The text as last loaded from or saved to the server; the editor is dirty when it differs. */
+  const [savedText, setSavedText] = useState('');
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [validation, setValidation] = useState<ValidationReport | null>(null);
+  const [validationPaneIsOpen, setValidationPaneIsOpen] = useState(false);
+  const hasFetchedRef = useRef(false);
 
-  const messageBar = useMessageBar();
-
-  const addMessage = useCallback((msg: string | string[], type?: MessageBarType) => {
-    debugLog('Adding message:', msg, 'type:', type);
-    messageBar.setMessages([
-      {
-        key: Date.now().toString(),
-        messageBarType: type || MessageBarType.success,
-        isMultiline: typeof msg !== "string",
-        children: msg,
-      },
-    ]);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [messageBar.setMessages]);
-
+  // --- Load ----------------------------------------------------------------
   useEffect(() => {
-    if (!envId || !flowId) {
-      debugError('Missing required parameters - envId:', envId, 'flowId:', flowId);
-      addMessage(
-        'Invalid URL parameters. Please open the extension from a Power Automate flow page.',
-        MessageBarType.error
-      );
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [envId, flowId]); // Removed addMessage from deps to prevent loop
-
-  const [data, setData] = useState<{
-    name: string;
-    definition: string;
-    environment: any;
-  }>({
-    name: "",
-    definition: "",
-    environment: null,
-  });
-
-  useEffect(() => {
-    // Prevent duplicate fetches
-    if (hasFetchedRef.current) {
-      return;
-    }
+    if (hasFetchedRef.current || !target || !api.isApiReady) return;
+    hasFetchedRef.current = true;
 
     (async () => {
-      if (envId && flowId && api.isApiReady) {
-        hasFetchedRef.current = true;
-
-        try {
-          debugLog('Fetching flow data...');
-          setIsLoading(true);
-
-          const flowUrl = getFlowUrl(envId, flowId, api.isPowerPlatformApi);
-          debugLog('Flow URL:', flowUrl);
-
-          const flow = await api.get(flowUrl);
-          debugLog('Flow data received:', {
-            displayName: flow.properties?.displayName,
-            hasDefinition: !!flow.properties?.definition,
-            hasConnectionReferences: !!flow.properties?.connectionReferences,
-            hasEnvironment: !!flow.properties?.environment
-          });
-
-          if (!flow.properties) {
-            throw new Error('Invalid flow data - missing properties');
-          }
-
-          if (!flow.properties.definition) {
-            throw new Error('Invalid flow data - missing definition');
-          }
-
-          if (!flow.properties.connectionReferences) {
-            debugLog('Warning: Flow has no connection references');
-          }
-
-          const flowDefinition = {
-            $schema: editorSchema,
-            connectionReferences: flow.properties.connectionReferences || {},
-            definition: flow.properties.definition,
-          };
-
-          setData({
-            name: flow.properties.displayName || 'Untitled Flow',
-            environment: flow.properties.environment,
-            definition: JSON.stringify(flowDefinition, null, 2),
-          });
-
-          debugLog('Flow data loaded successfully');
-          messageBar.setMessages([{
-            key: Date.now().toString(),
-            messageBarType: MessageBarType.success,
-            isMultiline: false,
-            children: `Flow "${flow.properties.displayName}" loaded successfully.`,
-          }]);
-
-        } catch (error) {
-          debugError('Error fetching flow:', error);
-          const errorMessage = error instanceof Error ? error.message : String(error);
-          messageBar.setMessages([{
-            key: Date.now().toString(),
-            messageBarType: MessageBarType.error,
-            isMultiline: false,
-            children: `Error loading flow: ${errorMessage}`,
-          }]);
-        } finally {
-          setIsLoading(false);
-        }
-      } else if (envId && flowId && !api.isApiReady) {
-        debugLog('Waiting for API to be ready...');
+      try {
+        setBusy('loading');
+        const flow = await api.get(getFlowUrl(target.envId, target.flowId, api.isPowerPlatformApi));
+        const doc = documentFromFlowResponse(flow);
+        setName(doc.displayName);
+        setSavedText(toEditorText(doc));
+        setLoadError(null);
+        showMessage(`Flow "${doc.displayName}" loaded successfully.`);
+      } catch (error) {
+        debugError('Error fetching flow:', error);
+        const message = error instanceof Error ? error.message : String(error);
+        setLoadError(message);
+        showMessage(`Error loading flow: ${message}`, MessageBarType.error);
+      } finally {
+        setBusy(null);
       }
+
+      // Best effort: a friendly environment name for the header and confirmations.
+      const displayName = await fetchEnvironmentName(api, target.envId);
+      if (displayName) setEnvironment({ id: target.envId, displayName });
     })();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [envId, flowId, api.isApiReady]); // Removed addMessage and editorSchema to prevent loop
+    // api is rebuilt on every render; depend on the fields that matter
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [envId, flowId, api.isApiReady]);
 
-  const saveDefinition = async (
-    name: string,
-    environment: any,
-    definition: string
-  ) => {
-    if (!envId || !flowId) {
-      addMessage('Cannot save - missing flow parameters', MessageBarType.error);
-      return null;
-    }
-
-    if (!name?.trim()) {
-      addMessage('Flow name cannot be empty', MessageBarType.error);
-      return null;
-    }
-
-    if (!definition?.trim()) {
-      addMessage('Flow definition cannot be empty', MessageBarType.error);
-      return null;
-    }
-
-    let parsedData;
-    try {
-      parsedData = JSON.parse(definition);
-    } catch (error) {
-      debugError('JSON parse error:', error);
-      addMessage('Invalid JSON format in flow definition', MessageBarType.error);
-      return null;
-    }
-
-    if (!parsedData.definition) {
-      addMessage('Missing "definition" property in flow definition', MessageBarType.error);
-      return null;
-    }
-
-    if (!parsedData.connectionReferences) {
-      debugLog('Warning: No connection references in definition');
-      parsedData.connectionReferences = {};
-    }
-
-    let retVal: string | null = null;
-
-    try {
-      debugLog('Saving flow definition...');
-      setIsLoading(true);
-
-      const savePayload = {
-        properties: {
-          displayName: name.trim(),
-          definition: parsedData.definition,
-          connectionReferences: parsedData.connectionReferences,
-        },
-      };
-
-      debugLog('Save payload:', {
-        displayName: savePayload.properties.displayName,
-        hasDefinition: !!savePayload.properties.definition,
-        hasConnectionReferences: !!savePayload.properties.connectionReferences,
-      });
-
-      const response = await api.patch(getFlowUrl(envId, flowId, api.isPowerPlatformApi), savePayload);
-
-      debugLog('Save response received');
-
-      if (!response?.properties) {
-        throw new Error('Invalid save response - missing properties');
+  // --- Save / publish ------------------------------------------------------
+  /**
+   * Save the editor text as a draft through the active FlowSaveStrategy.
+   * Resolves with the server's version of the text so the page can show it.
+   */
+  const saveDraft = useCallback(
+    async (text: string, opts: { quiet?: boolean } = {}): Promise<SaveOutcome> => {
+      if (!target) {
+        showMessage('Cannot save - missing flow parameters', MessageBarType.error);
+        return { ok: false };
+      }
+      const parsed = parseEditorText(text, name);
+      if (!parsed.ok) {
+        showMessage(`Cannot save: ${parsed.error}`, MessageBarType.error);
+        return { ok: false };
+      }
+      if (!name.trim()) {
+        showMessage('Flow name cannot be empty', MessageBarType.error);
+        return { ok: false };
       }
 
-      retVal = JSON.stringify(
-        {
-          $schema: editorSchema,
-          connectionReferences: response.properties.connectionReferences || {},
-          definition: response.properties.definition,
-        },
-        null,
-        2
-      );
-
-      debugLog('Flow saved successfully');
-      addMessage(`Flow "${name}" saved successfully.`);
-
-    } catch (error) {
-      debugError('Error saving flow:', error);
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      addMessage(
-        `Error saving flow: ${errorMessage}`,
-        MessageBarType.error
-      );
-    } finally {
-      setIsLoading(false);
-    }
-
-    return retVal;
-  };
-
-  const validate = async (definition: string) => {
-    if (!envId || !flowId) {
-      addMessage('Cannot validate - missing flow parameters', MessageBarType.error);
-      return;
-    }
-
-    if (!definition?.trim()) {
-      addMessage('Cannot validate empty definition', MessageBarType.error);
-      return;
-    }
-
-    let parsedData;
-    try {
-      parsedData = JSON.parse(definition);
-    } catch (error) {
-      debugError('JSON parse error during validation:', error);
-      addMessage('Invalid JSON format - cannot validate', MessageBarType.error);
-      return;
-    }
-
-    if (!parsedData.definition) {
-      addMessage('Missing "definition" property - cannot validate', MessageBarType.error);
-      return;
-    }
-
-    try {
-      debugLog('Validating flow definition...');
-      setIsLoading(true);
-
-      const validationPayload = {
-        properties: {
-          definition: parsedData.definition,
-        },
-      };
-
-      debugLog('Validation payload prepared');
-
-      const [errors, warnings] = await Promise.all([
-        api.post(`${getFlowUrl(envId, flowId, api.isPowerPlatformApi)}/checkFlowErrors`, validationPayload)
-          .catch(error => {
-            debugError('Error check failed:', error);
-            return [];
-          }),
-        api.post(`${getFlowUrl(envId, flowId, api.isPowerPlatformApi)}/checkFlowWarnings`, validationPayload)
-          .catch(error => {
-            debugError('Warning check failed:', error);
-            return [];
-          })
-      ]);
-
-      debugLog('Validation completed - errors:', errors.length, 'warnings:', warnings.length);
-
-      setValidationResult({
-        errors: Array.isArray(errors) ? errors : [],
-        warnings: Array.isArray(warnings) ? warnings : []
-      });
-      setValidationPaneIsOpen(true);
-
-      const totalIssues = (errors?.length || 0) + (warnings?.length || 0);
-      if (totalIssues === 0) {
-        addMessage('Validation completed - no issues found.');
-      } else {
-        addMessage(
-          `Validation completed - found ${errors?.length || 0} errors and ${warnings?.length || 0} warnings.`,
-          MessageBarType.warning
+      const strategy = selectSaveStrategy(api, target);
+      try {
+        setBusy('saving');
+        debugLog('Saving flow via', strategy.id);
+        const saved = await strategy.saveDraft(api, target, parsed.doc);
+        const serverText = toEditorText(saved);
+        setSavedText(serverText);
+        if (saved.displayName) setName(saved.displayName);
+        if (!opts.quiet) showMessage(`Flow "${saved.displayName || name}" saved.`);
+        return { ok: true, serverText };
+      } catch (error) {
+        debugError('Error saving flow:', error);
+        showMessage(
+          `Error saving flow: ${error instanceof Error ? error.message : String(error)}`,
+          MessageBarType.error
         );
+        return { ok: false };
+      } finally {
+        setBusy(null);
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [api.isApiReady, api.isPowerPlatformApi, envId, flowId, name, showMessage]
+  );
+
+  /** Save the editor text, then publish it. Publishing only happens after a successful save. */
+  const publish = useCallback(
+    async (text: string): Promise<SaveOutcome> => {
+      const saved = await saveDraft(text, { quiet: true });
+      if (!saved.ok || !target) return saved;
+
+      const strategy = selectSaveStrategy(api, target);
+      try {
+        setBusy('publishing');
+        await strategy.publish(api, target);
+        showMessage(`Flow "${name}" saved and published.`);
+      } catch (error) {
+        debugError('Error publishing flow:', error);
+        showMessage(
+          `Flow saved but publish failed: ${error instanceof Error ? error.message : String(error)}`,
+          MessageBarType.error
+        );
+      } finally {
+        setBusy(null);
+      }
+      // The draft was saved either way, so the caller should show the server text.
+      return saved;
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [saveDraft, name, showMessage, envId, flowId, api.isPowerPlatformApi]
+  );
+
+  // --- Validate -------------------------------------------------------------
+  const validate = useCallback(
+    async (text: string) => {
+      if (!target) {
+        showMessage('Cannot validate - missing flow parameters', MessageBarType.error);
+        return;
+      }
+      const parsed = parseEditorText(text, name);
+      if (!parsed.ok) {
+        showMessage(`Cannot validate: ${parsed.error}`, MessageBarType.error);
+        return;
       }
 
-    } catch (error) {
-      debugError('Error during validation:', error);
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      addMessage(
-        `Error during validation: ${errorMessage}`,
-        MessageBarType.error
-      );
-    } finally {
-      setIsLoading(false);
-    }
-  };
+      try {
+        setBusy('validating');
+        const schema = new SchemaValidator().validateFlow(parsed.doc.definition);
+        const checks = await runFlowCheckers(api, target, parsed.doc);
+        const report: ValidationReport = { schema, ...checks };
+        setValidation(report);
+        setValidationPaneIsOpen(true);
 
-  const publishDefinition = async (
-    name: string,
-    environment: any,
-    definition: string
-  ) => {
-    // Save first, then publish
-    const savedDefinition = await saveDefinition(name, environment, definition);
-    if (!savedDefinition) {
-      return null; // Save failed, error already shown
-    }
-
-    try {
-      debugLog('Publishing flow...');
-      setIsLoading(true);
-
-      const publishUrl = getFlowPublishUrl(envId, flowId, api.isPowerPlatformApi);
-      debugLog('Publish URL:', publishUrl);
-
-      await api.post(publishUrl, {});
-
-      debugLog('Flow published successfully');
-      addMessage(`Flow "${name}" saved and published successfully.`);
-
-      return savedDefinition;
-    } catch (error) {
-      debugError('Error publishing flow:', error);
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      addMessage(
-        `Flow saved but publish failed: ${errorMessage}`,
-        MessageBarType.error
-      );
-      return savedDefinition; // Return saved definition even if publish fails
-    } finally {
-      setIsLoading(false);
-    }
-  };
+        const summary = summarizeValidation(report);
+        showMessage(summary.text, TONE_TO_TYPE[summary.tone]);
+      } catch (error) {
+        debugError('Error during validation:', error);
+        showMessage(
+          `Error during validation: ${error instanceof Error ? error.message : String(error)}`,
+          MessageBarType.error
+        );
+      } finally {
+        setBusy(null);
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [api.isApiReady, api.isPowerPlatformApi, envId, flowId, name, showMessage]
+  );
 
   return {
-    isLoading,
+    envId,
+    flowId,
+    name,
+    environment,
+    savedText,
+    loadError,
+    busy,
+    isLoading: busy !== null,
+    messages,
+    showMessage,
+    dismissMessage,
+    validation,
     validationPaneIsOpen,
     setValidationPaneIsOpen,
-    validationResult,
-    ...messageBar,
-    ...data,
-    saveDefinition,
-    publishDefinition,
+    saveDraft,
+    publish,
     validate,
   };
 };
-
-export function getFlowUrl(envId: string | null, flowId: string | null, isPowerPlatform: boolean) {
-  if (!envId || !flowId) {
-    throw new Error('Missing environment ID or flow ID');
-  }
-  // Power Platform environment APIs use /powerautomate/flows/{flowId}
-  // Legacy APIs use /providers/Microsoft.ProcessSimple/environments/{envId}/flows/{flowId}
-  // draftFlow=true is required for solution-aware flows with unpublished changes
-  if (isPowerPlatform) {
-    return `powerautomate/flows/${flowId}?draftFlow=true`;
-  }
-  return `providers/Microsoft.ProcessSimple/environments/${envId}/flows/${flowId}?draftFlow=true`;
-}
-
-function getFlowPublishUrl(envId: string | null, flowId: string | null, isPowerPlatform: boolean) {
-  if (!envId || !flowId) {
-    throw new Error('Missing environment ID or flow ID');
-  }
-  if (isPowerPlatform) {
-    return `powerautomate/flows/${flowId}/publish`;
-  }
-  return `providers/Microsoft.ProcessSimple/environments/${envId}/flows/${flowId}/publish`;
-}

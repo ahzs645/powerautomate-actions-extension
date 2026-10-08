@@ -28,7 +28,7 @@ const TEXT_X = 42;
 const TEXT_RIGHT_PAD = 12;
 const TITLE_SIZE = 12;
 
-const V_GAP = 54; // vertical connector run, sized for the insert affordance
+const V_GAP = 54; // vertical connector run; leaves room for the status dots
 const H_GAP = 44;
 
 const HEADER_OVERLAP = 0.65; // how far the container tucks under its header
@@ -38,7 +38,7 @@ const CONT_PAD_TOP_PLAIN = 34; // single-body scopes: just clear the header over
 const CONT_PAD_BOTTOM = 18;
 const BRANCH_GAP = 24;
 const BRANCH_PAD_X = 16;
-// Deep enough that the branch pill, the insert marker and the first card in the
+// Deep enough that the branch pill, the status dots and the first card in the
 // branch all stack without overlapping.
 const BRANCH_PAD_TOP = 44;
 const BRANCH_PAD_BOTTOM = 18;
@@ -48,7 +48,6 @@ const COLLAPSED_BODY_H = 44;
 const EMPTY_BRANCH_W = 200;
 const EMPTY_BRANCH_H = 34;
 
-const PLUS_R = 8;
 const DOT_R = 3;
 const DOT_GAP = 7;
 const DOT_GROUP_GAP = 6;
@@ -59,8 +58,9 @@ const CANVAS_PAD = 36;
 export type DiagramTheme = 'light' | 'dark';
 
 /**
- * Concrete hex values rather than CSS variables: the diagram is also exported as a
- * standalone .svg file, where `var(--token)` would have nothing to resolve against.
+ * Concrete hex values for the exported .svg file, where `var(--token)` would have
+ * nothing to resolve against. On screen these become fallbacks behind the page's
+ * design tokens (see withTokens), so the diagram matches the rest of the UI.
  */
 const LIGHT_COLORS = {
   canvas: '#ffffff',
@@ -76,7 +76,7 @@ const LIGHT_COLORS = {
   branchFill: '#ffffff',
   branchBorder: '#c8c6c4',
   emptyText: '#a19f9d',
-  plus: '#0078d4',
+  focus: '#0078d4',
   pillTrue: '#107c10',
   pillFalse: '#a4262c',
   pillNeutral: '#605e5c',
@@ -96,22 +96,67 @@ const DARK_COLORS: typeof LIGHT_COLORS = {
   branchFill: '#2b2b2f',
   branchBorder: '#4a4a52',
   emptyText: '#7a7a82',
-  plus: '#479ef5',
-  pillTrue: '#2f8f2f',
-  pillFalse: '#c25055',
+  focus: '#479ef5',
+  // Pills carry white text: keep these at or above 4.5:1 against #ffffff.
+  pillTrue: '#237b23',
+  pillFalse: '#b03a40',
   pillNeutral: '#6a6a72',
 };
 
+type DiagramPalette = typeof LIGHT_COLORS;
+
+/** Page tokens first, the theme's own hex as the fallback. */
+function withTokens(p: DiagramPalette): DiagramPalette {
+  return {
+    ...p,
+    canvas: `var(--color-bg-card, ${p.canvas})`,
+    grid: `var(--color-stroke, ${p.grid})`,
+    card: `var(--color-bg-elevated, ${p.card})`,
+    cardBorder: `var(--color-stroke, ${p.cardBorder})`,
+    title: `var(--color-fg, ${p.title})`,
+    edge: `var(--color-fg-muted, ${p.edge})`,
+    containerFill: `var(--color-bg-subtle, ${p.containerFill})`,
+    containerBorder: `var(--color-stroke, ${p.containerBorder})`,
+    branchFill: `var(--color-bg-card, ${p.branchFill})`,
+    branchBorder: `var(--color-stroke, ${p.branchBorder})`,
+    emptyText: `var(--color-fg-secondary, ${p.emptyText})`,
+    focus: `var(--color-brand, ${p.focus})`,
+  };
+}
+
+/** Colour of the canvas behind the diagram, for hosts that frame the SVG. */
+export function diagramCanvasColor(theme: DiagramTheme = 'light'): string {
+  return withTokens(theme === 'dark' ? DARK_COLORS : LIGHT_COLORS).canvas;
+}
+
 // Swapped per render rather than threaded through 25 call sites. Rendering is
 // synchronous, so the active palette cannot change mid-render.
-let COLORS = LIGHT_COLORS;
+let COLORS: DiagramPalette = LIGHT_COLORS;
 
-const STATUS_COLORS: Record<string, string> = {
+const STATUS_HEX: Record<string, string> = {
   Succeeded: '#107c10',
   Failed: '#a4262c',
   TimedOut: '#f7630c',
   Skipped: '#a19f9d',
 };
+
+const STATUS_TOKENS: Record<string, string> = {
+  Succeeded: 'var(--color-success, #107c10)',
+  Failed: 'var(--color-danger, #a4262c)',
+  TimedOut: `var(--color-warning, #f7630c)`,
+  Skipped: 'var(--color-fg-muted, #a19f9d)',
+};
+
+let STATUS_COLORS = STATUS_HEX;
+
+/** Branch pills are resolved at render time so a theme switch needs no re-layout. */
+type PillKind = 'true' | 'false' | 'neutral';
+
+function pillFill(kind: string): string {
+  if (kind === 'true') return COLORS.pillTrue;
+  if (kind === 'false') return COLORS.pillFalse;
+  return COLORS.pillNeutral;
+}
 
 /**
  * Accent colours for the few operation types with no entry in the icon table.
@@ -249,6 +294,7 @@ export interface DiagramFrame {
   /** Wrapped row index; only the first row gets a fan-out connector. */
   row?: number;
   label: string;
+  /** Branch pill kind: 'true' | 'false' | 'neutral'; resolved to a colour when rendered. */
   pillColor: string;
   emptyText: string;
   /** Action name of the container card this frame belongs to. */
@@ -259,8 +305,6 @@ export interface Diagram {
   nodes: DiagramNode[];
   edges: DiagramEdge[];
   frames: DiagramFrame[];
-  /** Designer-style insert affordances, one directly above each connected card. */
-  plusPoints: Array<{ x: number; y: number }>;
   /** Single-body scopes with nothing inside; rendered as a "0 Actions" hint. */
   emptyBodies: Array<{ x: number; y: number; w: number; h: number }>;
   width: number;
@@ -334,7 +378,7 @@ export function buildDiagram(
   }
 
   function makeBranch(
-    label: string, pillColor: string, members: FlowAction[], framed = true
+    label: string, pillColor: PillKind, members: FlowAction[], framed = true
   ): Branch {
     const graph = layoutGraph(members);
     return {
@@ -356,8 +400,8 @@ export function buildDiagram(
 
     if (action.Type === 'If') {
       return [
-        makeBranch('True', COLORS.pillTrue, direct.filter(a => a.branch !== 'else')),
-        makeBranch('False', COLORS.pillFalse, direct.filter(a => a.branch === 'else')),
+        makeBranch('True', 'true', direct.filter(a => a.branch !== 'else')),
+        makeBranch('False', 'false', direct.filter(a => a.branch === 'else')),
       ];
     }
 
@@ -371,19 +415,19 @@ export function buildDiagram(
           cases.push(
             makeBranch(
               caseName === 'default' ? 'Default' : displayName(caseName),
-              COLORS.pillNeutral,
+              'neutral',
               byParent.get(parent)!
             )
           );
         }
       });
-      if (direct.length > 0) cases.unshift(makeBranch('', COLORS.pillNeutral, direct));
-      return cases.length > 0 ? cases : [makeBranch('Default', COLORS.pillNeutral, [])];
+      if (direct.length > 0) cases.unshift(makeBranch('', 'neutral', direct));
+      return cases.length > 0 ? cases : [makeBranch('Default', 'neutral', [])];
     }
 
     // Scope / Foreach / Until have a single body, so the container frame *is* the
     // body. Drawing a second frame inside it just nests two boxes for no reason.
-    return [makeBranch('', COLORS.pillNeutral, direct, false)];
+    return [makeBranch('', 'neutral', direct, false)];
   }
 
   function hasCases(action: FlowAction): boolean {
@@ -602,7 +646,7 @@ export function buildDiagram(
       h: triggerH,
       lines: triggerLines,
       tooltip: `${displayName(trigger.name || 'Trigger')}\n${trigger.connector || trigger.type || ''}`,
-      accent: trigger.brandColor || COLORS.plus,
+      accent: trigger.brandColor || LIGHT_COLORS.focus,
       iconUri: trigger.imgURL || getOperationIcon(trigger.type)?.iconUri || '',
       shortLabel: initials(trigger.connector || trigger.name || 'T'),
       isHeader: false,
@@ -779,17 +823,6 @@ export function buildDiagram(
     }
   }
 
-  // The designer puts an insert affordance directly above every action card.
-  // One per card, so a multi-parent join does not stack them on the same spot.
-  // Cards that show status dots need the marker lifted clear of them.
-  const dotted = new Set(nodes.filter(n => n.dotGroups.length > 0).map(n => n.key));
-  const plusPoints = nodes
-    .filter(node => !node.isTrigger)
-    .map(node => ({
-      x: node.x + node.w / 2,
-      y: node.y - PLUS_R - (dotted.has(node.key) ? DOT_OFFSET + 6 : 8),
-    }));
-
   const maxNodeY = nodes.length > 0 ? Math.max.apply(null, nodes.map(n => n.y + n.h)) : CANVAS_PAD;
   const maxFrameY = frames.length > 0 ? Math.max.apply(null, frames.map(f => f.y + f.h)) : 0;
   const maxNodeX = nodes.length > 0 ? Math.max.apply(null, nodes.map(n => n.x + n.w)) : 0;
@@ -798,7 +831,6 @@ export function buildDiagram(
     nodes,
     edges,
     frames,
-    plusPoints,
     emptyBodies,
     width: Math.max(maxNodeX, maxFrameX) + CANVAS_PAD,
     height: Math.max(maxNodeY, maxFrameY) + CANVAS_PAD,
@@ -1005,15 +1037,21 @@ function fanEdge(header: Rect, branch: DiagramFrame): DiagramEdge {
 export interface RenderOptions {
   /** Adds hit targets, hover/selection styling and data-* hooks for click handling. */
   interactive?: boolean;
-  /** The designer's "+" insert affordance. Pure decoration here, so exports omit it. */
-  showInsertMarkers?: boolean;
   /** Defaults to light so exported SVGs stay printable unless asked otherwise. */
   theme?: DiagramTheme;
+  /**
+   * Paint with the page's CSS variables (hex fallbacks included). Defaults to on for
+   * interactive renders, which live inside the page, and off for exports.
+   */
+  cssVariables?: boolean;
 }
 
 export function renderDiagramSvg(diagram: Diagram, options: RenderOptions = {}): string {
-  const { interactive = false, showInsertMarkers = false, theme = 'light' } = options;
-  COLORS = theme === 'dark' ? DARK_COLORS : LIGHT_COLORS;
+  const { interactive = false, theme = 'light' } = options;
+  const cssVariables = options.cssVariables ?? interactive;
+  const palette = theme === 'dark' ? DARK_COLORS : LIGHT_COLORS;
+  COLORS = cssVariables ? withTokens(palette) : palette;
+  STATUS_COLORS = cssVariables ? STATUS_TOKENS : STATUS_HEX;
   const { nodes, edges, frames, width, height } = diagram;
   const parts: string[] = [];
 
@@ -1040,7 +1078,7 @@ export function renderDiagramSvg(diagram: Diagram, options: RenderOptions = {}):
     parts.push(`<style>
       .pa-node, .pa-frame { cursor: pointer; }
       .pa-hit { fill: transparent; }
-      .pa-focus { fill: none; stroke: ${COLORS.plus}; stroke-width: 2; opacity: 0; pointer-events: none; }
+      .pa-focus { fill: none; stroke: ${COLORS.focus}; stroke-width: 2; opacity: 0; pointer-events: none; }
       .pa-node:hover .pa-focus, .pa-frame:hover .pa-focus { opacity: 0.4; }
       .pa-node[data-selected="true"] .pa-focus,
       .pa-frame[data-selected="true"] .pa-focus { opacity: 1; }
@@ -1116,17 +1154,11 @@ export function renderDiagramSvg(diagram: Diagram, options: RenderOptions = {}):
     const x = frame.x + (frame.w - w) / 2;
     parts.push(
       `<rect x="${round(x)}" y="${round(frame.y - 13)}" width="${round(w)}" height="26" rx="3" ry="3" ` +
-        `fill="${frame.pillColor}"/>` +
+        `fill="${pillFill(frame.pillColor)}"/>` +
         `<text x="${round(x + w / 2 - 5)}" y="${round(frame.y + 4)}" text-anchor="middle" ` +
         `fill="#ffffff" font-size="11.5">${escapeXml(frame.label)}</text>` +
         chevron(x + w - 14, frame.y, '#ffffff')
     );
-  }
-
-  if (showInsertMarkers) {
-    for (const point of diagram.plusPoints) {
-      parts.push(plusMarker(point.x, point.y));
-    }
   }
 
   nodes.forEach((node, i) => parts.push(renderCard(node, i, interactive)));
@@ -1141,16 +1173,6 @@ function chevron(x: number, y: number, color: string, dir: 'up' | 'down' = 'down
     `<path d="M ${round(x - 4)} ${round(y - dy)} L ${round(x)} ${round(y + dy)} ` +
     `L ${round(x + 4)} ${round(y - dy)}" fill="none" stroke="${color}" stroke-width="1.4" ` +
     `stroke-linecap="round" stroke-linejoin="round"/>`
-  );
-}
-
-/** The designer's insert affordance. Decorative here - the diagram is read-only. */
-function plusMarker(x: number, y: number): string {
-  return (
-    `<g><circle cx="${round(x)}" cy="${round(y)}" r="${PLUS_R}" fill="${COLORS.card}" ` +
-    `stroke="${COLORS.plus}" stroke-width="1.1"/>` +
-    `<path d="M ${round(x - 4)} ${round(y)} H ${round(x + 4)} M ${round(x)} ${round(y - 4)} ` +
-    `V ${round(y + 4)}" stroke="${COLORS.plus}" stroke-width="1.3" stroke-linecap="round"/></g>`
   );
 }
 

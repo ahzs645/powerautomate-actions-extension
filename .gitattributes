@@ -1,0 +1,2 @@
+# Precompiled by scripts/build-validators.js; collapse in diffs.
+src/schemas/generated/*.js linguist-generated=true -diff

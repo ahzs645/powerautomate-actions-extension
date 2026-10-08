@@ -11,6 +11,9 @@ const EXTENSION_PATH = path.resolve(__dirname, '../../build');
 export async function launchWithExtension() {
   const context = await chromium.launchPersistentContext('', {
     headless: false,
+    // Use a preinstalled Chromium when the one matching this Playwright version
+    // is not downloaded (e.g. sandboxed CI): PW_CHROMIUM_EXECUTABLE=/path/to/chrome
+    executablePath: process.env.PW_CHROMIUM_EXECUTABLE || undefined,
     args: [
       `--disable-extensions-except=${EXTENSION_PATH}`,
       `--load-extension=${EXTENSION_PATH}`,

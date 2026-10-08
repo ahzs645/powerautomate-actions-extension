@@ -178,45 +178,6 @@ describe('buildDiagram', () => {
     expect(byKey.get('Read_the_Status')!.isHeader).toBe(false);
   });
 
-  it('keeps insert markers clear of cards and branch pills', () => {
-    const result = analyze();
-    const diagram = buildDiagram(result.actions, result.trigger);
-    const PLUS_R = 8;
-
-    for (const point of diagram.plusPoints) {
-      for (const node of diagram.nodes) {
-        const overlaps =
-          point.x + PLUS_R > node.x &&
-          point.x - PLUS_R < node.x + node.w &&
-          point.y + PLUS_R > node.y &&
-          point.y - PLUS_R < node.y + node.h;
-        expect(overlaps).toBe(false);
-      }
-
-      // Branch pills straddle the top edge of their frame.
-      for (const frame of diagram.frames) {
-        if (frame.kind !== 'branch' || !frame.label) continue;
-        const pillTop = frame.y - 13;
-        const pillBottom = frame.y + 13;
-        const vertical = point.y + PLUS_R > pillTop && point.y - PLUS_R < pillBottom;
-        // The pill is centred on the frame, so only a centred marker could clash.
-        const horizontal = Math.abs(point.x - (frame.x + frame.w / 2)) < 40;
-        expect(vertical && horizontal).toBe(false);
-      }
-    }
-  });
-
-  it('gives every action card an insert marker, but not the trigger', () => {
-    const result = analyze();
-    const diagram = buildDiagram(result.actions, result.trigger);
-
-    expect(diagram.plusPoints).toHaveLength(result.actions.length);
-    const triggerNode = diagram.nodes.find(n => n.key === '__trigger__')!;
-    for (const point of diagram.plusPoints) {
-      expect(point.y).toBeGreaterThan(triggerNode.y);
-    }
-  });
-
   it('clamps long names to the card instead of overflowing', () => {
     const longName = 'Supercalifragilisticexpialidocious_'.repeat(4) + 'End';
     const flow = {
@@ -641,24 +602,42 @@ describe('render options', () => {
     expect(staticSvg).not.toContain('cursor: pointer');
   });
 
-  it('omits the decorative insert markers from the export', () => {
+  it('draws no "+" insert markers: the diagram is read-only', () => {
+    const result = analyze();
+    const diagram = buildDiagram(result.actions, result.trigger);
+    const onScreen = renderDiagramSvg(diagram, { interactive: true });
+
+    expect((diagram as any).plusPoints).toBeUndefined();
+    // Status dots are the only circles left (radius 3); the old markers were r="8".
+    expect(onScreen).not.toContain('r="8"');
+    expect(countOccurrences(onScreen, 'marker-end="url(#arrow)"')).toBe(diagram.edges.length);
+  });
+
+  it('paints on-screen renders with design tokens and exports with plain hex', () => {
     const result = analyze();
     const diagram = buildDiagram(result.actions, result.trigger);
 
-    const onScreen = renderDiagramSvg(diagram, { showInsertMarkers: true });
-    const exported = renderDiagramSvg(diagram, { showInsertMarkers: false });
+    const onScreen = renderDiagramSvg(diagram, { interactive: true, theme: 'dark' });
+    expect(onScreen).toContain('fill="var(--color-bg-card, #1b1b1f)"');
+    expect(onScreen).toContain('var(--color-fg, #e8e8ed)');
 
-    expect(diagram.plusPoints.length).toBeGreaterThan(0);
-    // The markers are the only user of the accent blue stroke circle.
-    expect(countOccurrences(onScreen, 'circle cx=')).toBeGreaterThan(
-      countOccurrences(exported, 'circle cx=')
-    );
-    // Cards and edges survive either way - connectors are the arrow-marked paths.
-    expect(exported).toContain('Notify Healthy Start');
-    expect(countOccurrences(exported, 'marker-end="url(#arrow)"')).toBe(
-      countOccurrences(onScreen, 'marker-end="url(#arrow)"')
-    );
-    expect(countOccurrences(exported, 'marker-end="url(#arrow)"')).toBe(diagram.edges.length);
+    const exported = renderDiagramSvg(diagram, { interactive: false, theme: 'dark' });
+    expect(exported).not.toContain('var(--');
+    expect(exported).toContain('fill="#1b1b1f"');
+  });
+
+  it('resolves branch pill colours at render time, not layout time', () => {
+    const result = analyze();
+    const diagram = buildDiagram(result.actions, result.trigger);
+    const kinds = diagram.frames.filter(f => f.kind === 'branch' && f.label).map(f => f.pillColor);
+    expect(kinds.every(k => ['true', 'false', 'neutral'].includes(k))).toBe(true);
+
+    const light = renderDiagramSvg(diagram, { theme: 'light' });
+    const dark = renderDiagramSvg(diagram, { theme: 'dark' });
+    if (kinds.includes('true')) {
+      expect(light).toContain('fill="#107c10"');
+      expect(dark).toContain('fill="#237b23"');
+    }
   });
 
   it('defaults to a static export-safe render', () => {

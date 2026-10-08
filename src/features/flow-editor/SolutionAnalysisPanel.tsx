@@ -26,6 +26,7 @@ import {
   FlowDependencyGraph,
   MissingChildFlow,
 } from '../../services/SolutionAnalyzer';
+import { MetricCard, MetricRow } from './components/MetricCard';
 
 interface SolutionAnalysisPanelProps {
   isOpen: boolean;
@@ -50,15 +51,14 @@ const cardStyles = mergeStyles({
   marginBottom: '12px',
 });
 
-const metricStyles = (color: string) =>
-  mergeStyles({
-    padding: '12px 16px',
-    borderRadius: '8px',
-    backgroundColor: color,
-    color: '#fff',
-    textAlign: 'center',
-    minWidth: '100px',
-  });
+/** Dependency graph colours: internal flows use the brand colour, missing ones danger. */
+const GRAPH = {
+  internal: 'var(--color-brand, #0078d4)',
+  internalStroke: 'var(--color-brand-hover, #005a9e)',
+  external: 'var(--color-danger, #d13438)',
+  externalStroke: 'var(--color-danger, #a4262c)',
+  nodeText: 'var(--color-brand-text, #ffffff)',
+};
 
 const uploadAreaStyles = mergeStyles({
   border: '2px dashed var(--color-brand)',
@@ -199,7 +199,7 @@ export const SolutionAnalysisPanel: React.FC<SolutionAnalysisPanelProps> = ({
         <Text
           styles={{
             root: {
-              color: getRatingColor(item.analysis?.overallRating || 0),
+              color: item.analysis ? getRatingColor(item.analysis.overallRating) : 'var(--color-fg)',
               fontWeight: 600,
             },
           }}
@@ -437,7 +437,7 @@ export const SolutionAnalysisPanel: React.FC<SolutionAnalysisPanelProps> = ({
     svg += `
       <defs>
         <marker id="arrowhead-dep" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
-          <polygon points="0 0, 8 3, 0 6" fill="#0078d4" />
+          <polygon points="0 0, 8 3, 0 6" fill="${GRAPH.internal}" />
         </marker>
       </defs>
     `;
@@ -451,7 +451,7 @@ export const SolutionAnalysisPanel: React.FC<SolutionAnalysisPanelProps> = ({
         const startY = sourcePos.y + nodeHeight;
         const endX = targetPos.x + nodeWidth / 2;
         const endY = targetPos.y;
-        const color = edge.isInternal ? '#0078d4' : '#d13438';
+        const color = edge.isInternal ? GRAPH.internal : GRAPH.external;
 
         if (Math.abs(startX - endX) < 5) {
           svg += `<line x1="${startX}" y1="${startY}" x2="${endX}" y2="${endY - 5}"
@@ -469,7 +469,7 @@ export const SolutionAnalysisPanel: React.FC<SolutionAnalysisPanelProps> = ({
       const pos = nodePositions.get(node.id);
       if (!pos) return;
 
-      const fill = node.isInSolution ? '#0078d4' : '#d13438';
+      const fill = node.isInSolution ? GRAPH.internal : GRAPH.external;
       // Flow names come from an uploaded solution zip; escape them so a
       // crafted name can't inject markup into the dangerouslySetInnerHTML SVG.
       const displayName = escapeXml(node.displayName.length > 20
@@ -478,11 +478,11 @@ export const SolutionAnalysisPanel: React.FC<SolutionAnalysisPanelProps> = ({
 
       svg += `
         <rect x="${pos.x}" y="${pos.y}" width="${nodeWidth}" height="${nodeHeight}"
-          rx="6" ry="6" fill="${fill}" stroke="${node.isInSolution ? '#005a9e' : '#a4262c'}" stroke-width="2" />
-        <text x="${pos.x + nodeWidth / 2}" y="${pos.y + 20}" text-anchor="middle" fill="white" font-weight="bold">
+          rx="6" ry="6" fill="${fill}" stroke="${node.isInSolution ? GRAPH.internalStroke : GRAPH.externalStroke}" stroke-width="2" />
+        <text x="${pos.x + nodeWidth / 2}" y="${pos.y + 20}" text-anchor="middle" fill="${GRAPH.nodeText}" font-weight="bold">
           ${displayName}
         </text>
-        <text x="${pos.x + nodeWidth / 2}" y="${pos.y + 36}" text-anchor="middle" fill="rgba(255,255,255,0.8)" font-size="10">
+        <text x="${pos.x + nodeWidth / 2}" y="${pos.y + 36}" text-anchor="middle" fill="${GRAPH.nodeText}" font-size="10">
           ${node.isInSolution ? `${node.actionCount} actions | ${node.rating}%` : 'External'}
         </text>
       `;
@@ -553,78 +553,36 @@ export const SolutionAnalysisPanel: React.FC<SolutionAnalysisPanelProps> = ({
         {analysisResult && (
           <>
             {/* Solution Header */}
-            <div className={cardStyles} style={{ background: 'linear-gradient(135deg, #0078d4, #106ebe)' }}>
+            <div className={cardStyles} style={{ borderLeft: '4px solid var(--color-brand)' }}>
               <Stack horizontal horizontalAlign="space-between" verticalAlign="center">
                 <Stack>
-                  <Text variant="xLarge" styles={{ root: { color: '#fff', fontWeight: 600 } }}>
+                  <Text variant="xLarge" styles={{ root: { color: 'var(--color-fg)', fontWeight: 600 } }}>
                     {analysisResult.name}
                   </Text>
-                  <Text styles={{ root: { color: 'rgba(255,255,255,0.9)' } }}>
+                  <Text styles={{ root: { color: 'var(--color-fg-secondary)' } }}>
                     Version {analysisResult.version} | Publisher: {analysisResult.publisher}
                   </Text>
                 </Stack>
-                <PrimaryButton
-                  iconProps={{ iconName: 'Clear' }}
-                  text="Clear"
-                  onClick={handleClear}
-                  styles={{ root: { backgroundColor: 'rgba(255,255,255,0.2)' } }}
-                />
+                <PrimaryButton iconProps={{ iconName: 'Clear' }} text="Clear" onClick={handleClear} />
               </Stack>
             </div>
 
             {/* Aggregate Metrics */}
-            <Stack horizontal tokens={{ childrenGap: 12 }} wrap>
-              <div className={metricStyles('#0078d4')}>
-                <Text variant="xLarge" styles={{ root: { fontWeight: 700, color: '#fff' } }}>
-                  {analysisResult.aggregateMetrics.totalFlows}
-                </Text>
-                <Text variant="small" styles={{ root: { color: '#fff' } }}>
-                  Flows
-                </Text>
-              </div>
-              <div className={metricStyles('#107c10')}>
-                <Text variant="xLarge" styles={{ root: { fontWeight: 700, color: '#fff' } }}>
-                  {analysisResult.aggregateMetrics.totalActions}
-                </Text>
-                <Text variant="small" styles={{ root: { color: '#fff' } }}>
-                  Total Actions
-                </Text>
-              </div>
-              <div className={metricStyles('#ff8c00')}>
-                <Text variant="xLarge" styles={{ root: { fontWeight: 700, color: '#fff' } }}>
-                  {analysisResult.aggregateMetrics.averageComplexity}
-                </Text>
-                <Text variant="small" styles={{ root: { color: '#fff' } }}>
-                  Avg Complexity
-                </Text>
-              </div>
-              <div className={metricStyles(getRatingColor(analysisResult.aggregateMetrics.averageRating))}>
-                <Text variant="xLarge" styles={{ root: { fontWeight: 700, color: '#fff' } }}>
-                  {analysisResult.aggregateMetrics.averageRating}%
-                </Text>
-                <Text variant="small" styles={{ root: { color: '#fff' } }}>
-                  Avg Rating
-                </Text>
-              </div>
-              <div className={metricStyles('#8764b8')}>
-                <Text variant="xLarge" styles={{ root: { fontWeight: 700, color: '#fff' } }}>
-                  {analysisResult.aggregateMetrics.totalConnections}
-                </Text>
-                <Text variant="small" styles={{ root: { color: '#fff' } }}>
-                  Connections
-                </Text>
-              </div>
+            <MetricRow label="Solution metrics">
+              <MetricCard label="Flows" value={analysisResult.aggregateMetrics.totalFlows} tone="info" />
+              <MetricCard label="Total actions" value={analysisResult.aggregateMetrics.totalActions} tone="neutral" />
+              <MetricCard label="Avg complexity" value={analysisResult.aggregateMetrics.averageComplexity} tone="neutral" />
+              <MetricCard
+                label="Avg rating"
+                value={`${analysisResult.aggregateMetrics.averageRating}%`}
+                tone={ratingTone(analysisResult.aggregateMetrics.averageRating)}
+                hint="Green ≥ 70%, amber ≥ 40%"
+              />
+              <MetricCard label="Connections" value={analysisResult.aggregateMetrics.totalConnections} tone="accent" />
               {analysisResult.aggregateMetrics.flowsWithIssues > 0 && (
-                <div className={metricStyles('#d13438')}>
-                  <Text variant="xLarge" styles={{ root: { fontWeight: 700, color: '#fff' } }}>
-                    {analysisResult.aggregateMetrics.flowsWithIssues}
-                  </Text>
-                  <Text variant="small" styles={{ root: { color: '#fff' } }}>
-                    Flows with Issues
-                  </Text>
-                </div>
+                <MetricCard label="Flows with issues" value={analysisResult.aggregateMetrics.flowsWithIssues} tone="danger" />
               )}
-            </Stack>
+            </MetricRow>
 
             {/* Tabs */}
             <Pivot>
@@ -652,11 +610,11 @@ export const SolutionAnalysisPanel: React.FC<SolutionAnalysisPanelProps> = ({
                     <>
                       <Stack horizontal tokens={{ childrenGap: 8 }} styles={{ root: { marginBottom: 12 } }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <div style={{ width: 16, height: 16, backgroundColor: '#0078d4', borderRadius: 3 }} />
+                          <div style={{ width: 16, height: 16, backgroundColor: GRAPH.internal, borderRadius: 3 }} />
                           <Text>Internal Flow</Text>
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <div style={{ width: 16, height: 16, backgroundColor: '#d13438', borderRadius: 3 }} />
+                          <div style={{ width: 16, height: 16, backgroundColor: GRAPH.external, borderRadius: 3 }} />
                           <Text>External/Missing Flow</Text>
                         </div>
                       </Stack>
@@ -769,10 +727,15 @@ export const SolutionAnalysisPanel: React.FC<SolutionAnalysisPanelProps> = ({
   );
 };
 
+/** Text colour for a rating; amber text uses the body colour (orange text fails contrast). */
 function getRatingColor(rating: number): string {
-  if (rating >= 70) return '#107c10';
-  if (rating >= 40) return '#ff8c00';
-  return '#d13438';
+  if (rating >= 70) return 'var(--color-success)';
+  if (rating >= 40) return 'var(--color-fg)';
+  return 'var(--color-danger)';
+}
+
+function ratingTone(rating: number): 'success' | 'warning' | 'danger' {
+  return rating >= 70 ? 'success' : rating >= 40 ? 'warning' : 'danger';
 }
 
 export default SolutionAnalysisPanel;
