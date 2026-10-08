@@ -67,6 +67,8 @@
   --color-info-bg: #deecf9;
   --color-accent: #5c2e91;
   --color-accent-bg: #f6f0fb;
+  --color-favorite: #c47f00;
+  --color-recording: #d13438;
 
   /* Shadows */
   --shadow-sm: 0 0 2px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.10);
@@ -79,9 +81,9 @@
   --duration-slow: 200ms;
   --easing: cubic-bezier(0.33, 0, 0.67, 1);
 
-  /* Layout */
+  /* Layout: Chrome caps popups at 800x600; keep a little headroom. */
   --popup-width: 600px;
-  --popup-height: 570px;
+  --popup-height: 580px;
   --header-height: 48px;
   --icon-button-size: 32px;
   --tab-bar-height: 40px;
@@ -123,6 +125,8 @@
     --color-info: #479ef5;
     --color-accent: #c9a6f0;
     --color-accent-bg: #2f2140;
+    --color-favorite: #f5b544;
+    --color-recording: #f1707b;
 
     --shadow-sm: 0 0 2px rgba(0,0,0,0.30), 0 1px 2px rgba(0,0,0,0.28);
     --shadow-md: 0 0 2px rgba(0,0,0,0.30), 0 4px 8px rgba(0,0,0,0.32);
@@ -162,6 +166,8 @@
   --color-info: #479ef5;
   --color-accent: #c9a6f0;
   --color-accent-bg: #2f2140;
+  --color-favorite: #f5b544;
+  --color-recording: #f1707b;
 
   --shadow-sm: 0 0 2px rgba(0,0,0,0.30), 0 1px 2px rgba(0,0,0,0.28);
   --shadow-md: 0 0 2px rgba(0,0,0,0.30), 0 4px 8px rgba(0,0,0,0.32);

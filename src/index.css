@@ -1,16 +1,11 @@
+/* Popup sizing lives in App.css (driven by --popup-width / --popup-height in
+   theme/tokens.css) so there is a single source of truth. */
 body {
-  width: 600px;
-  height: 400px;
   margin: 0;
   font-family: 'Segoe UI Variable', 'Segoe UI', -apple-system, BlinkMacSystemFont,
     'Helvetica Neue', Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-}
-
-[data-surface="sidepanel"] body {
-  width: 100%;
-  height: 100vh;
 }
 
 code {
