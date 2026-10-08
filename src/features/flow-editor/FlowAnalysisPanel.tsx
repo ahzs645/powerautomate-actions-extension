@@ -11,8 +11,7 @@ import { mergeStyles } from '@fluentui/react/lib/Styling';
 import { FlowAnalyzer, FlowAnalysisResult, FlowVariable, FlowAction } from '../../services/FlowAnalyzer';
 import { ExceptionAnalyzer, ExceptionAnalysisResult } from '../../services/ExceptionAnalyzer';
 import { ReportGenerator } from '../../services/ReportGenerator';
-import { FlowDiagramTab } from './FlowDiagramTab';
-import { JsonRange } from './flowJsonLocator';
+import { findActionRange, JsonRange } from './flowJsonLocator';
 import { ExceptionAnalysisTab } from './ExceptionAnalysisTab';
 import { ApiActionsTab } from './ApiActionsTab';
 import { InputAnalysisTab } from './InputAnalysisTab';
@@ -22,7 +21,7 @@ interface FlowAnalysisPanelProps {
   onDismiss: () => void;
   flowDefinition: string;
   flowName: string;
-  /** Supplied by the host page so the diagram can jump the editor to a selection. */
+  /** Supplied by the host page so a selected action can be shown in the editor. */
   onRevealRange?: (range: JsonRange) => void;
 }
 
@@ -58,8 +57,6 @@ export const FlowAnalysisPanel: React.FC<FlowAnalysisPanelProps> = ({
 }) => {
   const [searchText, setSearchText] = useState('');
   const [selectedTab, setSelectedTab] = useState('overview');
-  // Shared by the diagram and the Actions table so they stay in step.
-  const [selectedAction, setSelectedAction] = useState<string | null>(null);
 
   const analysisResult = useMemo<FlowAnalysisResult | null>(() => {
     if (!flowDefinition || !isOpen) return null;
@@ -303,19 +300,10 @@ export const FlowAnalysisPanel: React.FC<FlowAnalysisPanelProps> = ({
           layoutMode={DetailsListLayoutMode.justified}
           selectionMode={SelectionMode.none}
           isHeaderVisible={true}
-          // Picking a row here selects the same node on the Diagram tab.
-          onActiveItemChanged={(item?: FlowAction) => {
-            if (item) setSelectedAction(item.Name);
-          }}
-          onRenderRow={(props, defaultRender) => {
-            if (!props || !defaultRender) return null;
-            const isSelected = (props.item as FlowAction).Name === selectedAction;
-            return defaultRender({
-              ...props,
-              styles: isSelected
-                ? { root: { backgroundColor: 'var(--color-info-bg)', borderLeft: '3px solid var(--color-brand)' } }
-                : undefined,
-            });
+          // Double-click or Enter on a row shows that action in the editor.
+          onItemInvoked={(item?: FlowAction) => {
+            const range = item && onRevealRange && findActionRange(flowDefinition, item.Name);
+            if (range) onRevealRange!(range);
           }}
         />
       </Stack>
@@ -374,22 +362,6 @@ export const FlowAnalysisPanel: React.FC<FlowAnalysisPanelProps> = ({
     );
   };
 
-  const renderDiagram = () => {
-    if (!analysisResult) return null;
-    return (
-      <FlowDiagramTab
-        actions={analysisResult.actions}
-        trigger={analysisResult.trigger}
-        flowDefinition={flowDefinition}
-        flowName={flowName}
-        selectedKey={selectedAction}
-        onSelect={setSelectedAction}
-        searchText={searchText}
-        onRevealRange={onRevealRange}
-      />
-    );
-  };
-
   return (
     <Panel
       isOpen={isOpen}
@@ -424,7 +396,6 @@ export const FlowAnalysisPanel: React.FC<FlowAnalysisPanelProps> = ({
               styles={{ root: { marginBottom: 8 } }}
             >
               <PivotItem headerText="Overview" itemKey="overview" />
-              <PivotItem headerText="Diagram" itemKey="diagram" />
               <PivotItem headerText="Exceptions" itemKey="exceptions" />
               <PivotItem headerText={`Actions (${analysisResult.actionCount})`} itemKey="actions" />
               <PivotItem headerText="API Actions" itemKey="apiActions" />
@@ -434,7 +405,6 @@ export const FlowAnalysisPanel: React.FC<FlowAnalysisPanelProps> = ({
             </Pivot>
 
             {selectedTab === 'overview' && renderOverview()}
-            {selectedTab === 'diagram' && renderDiagram()}
             {selectedTab === 'exceptions' && exceptionResult && (
               <ExceptionAnalysisTab exceptionResult={exceptionResult} />
             )}

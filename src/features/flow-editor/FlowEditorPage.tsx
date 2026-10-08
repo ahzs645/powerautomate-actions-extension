@@ -7,13 +7,15 @@ import { LoaderModal } from '../../components/shared/LoaderModal';
 import { useResolvedTheme } from '../../theme/useResolvedTheme';
 import { PublishConfirmDialog, SaveConfirmDialog } from './components/ConfirmDialogs';
 import { FlowEditorHeader, groupStartStyles, primaryCommandStyles } from './components/FlowEditorHeader';
+import { EditorView, isEditorView, ViewSwitch } from './components/ViewSwitch';
+import { FlowDiagramView } from './FlowDiagramView';
 import { applyServerText, isTextDirty } from './editorSync';
 import { FlowAnalysisPanel } from './FlowAnalysisPanel';
 import { FlowComparisonPanel } from './FlowComparisonPanel';
 import { findActionRange, findPointerRange, JsonRange } from './flowJsonLocator';
 import { FlowValidationResult } from './FlowValidationResult';
 import { monaco } from './monacoSetup';
-import { rememberSaveConfirmed, shouldConfirmSave } from './savePreferences';
+import { readPreference, rememberSaveConfirmed, shouldConfirmSave, writePreference } from './savePreferences';
 import { SolutionAnalysisPanel } from './SolutionAnalysisPanel';
 import { useFlowEditor } from './useFlowEditor';
 import { StatusMessages } from './useStatusMessages';
@@ -34,7 +36,25 @@ const workspaceClass = mergeStyles({
   display: 'flex',
 });
 
-const editorPaneClass = mergeStyles({ flex: '1 1 0', minWidth: 0, minHeight: 0 });
+const VIEW_PREFERENCE_KEY = 'paToolkit.flowEditor.view';
+
+const editorPaneClass = (view: EditorView) =>
+  mergeStyles({
+    flex: '1 1 0',
+    minWidth: 0,
+    minHeight: 0,
+    // Hidden rather than unmounted in Diagram view: the model, undo history and
+    // scroll position survive switching back.
+    display: view === 'diagram' ? 'none' : 'block',
+  });
+
+const diagramPaneClass = (view: EditorView) =>
+  mergeStyles({
+    flex: '1 1 0',
+    minWidth: 0,
+    minHeight: 0,
+    borderLeft: view === 'split' ? '1px solid var(--color-stroke)' : 'none',
+  });
 
 export const FlowEditorPage: React.FC = () => {
   const resolvedTheme = useResolvedTheme();
@@ -46,6 +66,13 @@ export const FlowEditorPage: React.FC = () => {
   const [solutionPanelOpen, setSolutionPanelOpen] = useState(false);
   /** Editor text captured when a panel opens, so panels analyse what you see. */
   const [panelText, setPanelText] = useState('');
+  const [view, setViewState] = useState<EditorView>(() => {
+    const stored = readPreference(VIEW_PREFERENCE_KEY);
+    return isEditorView(stored) ? stored : 'json';
+  });
+  /** Live editor text for the diagram; only tracked while the diagram is visible. */
+  const [liveText, setLiveText] = useState('');
+  const [selectedNode, setSelectedNode] = useState<string | null>(null);
 
   const {
     name,
@@ -74,6 +101,28 @@ export const FlowEditorPage: React.FC = () => {
   const recomputeDirty = useCallback(() => {
     setIsDirty(isTextDirty(editor?.getModel() ?? null, savedTextRef.current));
   }, [editor]);
+
+  const viewRef = useRef(view);
+  viewRef.current = view;
+  const handleEditorChange = useCallback(() => {
+    recomputeDirty();
+    if (viewRef.current !== 'json' && editor) setLiveText(editor.getValue());
+  }, [recomputeDirty, editor]);
+
+  const setView = useCallback(
+    (next: EditorView) => {
+      setViewState(next);
+      writePreference(VIEW_PREFERENCE_KEY, next);
+      if (next !== 'json') setLiveText(editor?.getValue() || savedTextRef.current);
+    },
+    [editor]
+  );
+
+  // The diagram needs text before the editor has mounted (Diagram view on load).
+  useEffect(() => {
+    if (view !== 'json') setLiveText(editor?.getValue() || savedText);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [savedText, editor]);
 
   useEffect(() => {
     recomputeDirty();
@@ -151,6 +200,31 @@ export const FlowEditorPage: React.FC = () => {
     [editor]
   );
 
+  /** Diagram selection: in Split view it follows along in the JSON without moving focus. */
+  const handleNodeSelect = useCallback(
+    (key: string | null) => {
+      setSelectedNode(key);
+      if (!key || view !== 'split' || !editor) return;
+      const text = editor.getValue();
+      let range = findActionRange(text, key);
+      if (!range && key === '__trigger__') {
+        range = findPointerRange(text, '/definition/triggers');
+      }
+      if (range) revealRange(range, { focus: false });
+    },
+    [view, editor, revealRange]
+  );
+
+  /** "Show in editor" from the Diagram view opens the JSON beside it. */
+  const showInEditor = useCallback(
+    (range: JsonRange) => {
+      if (view === 'diagram') setView('split');
+      // Let the editor pane become visible and lay out before revealing.
+      window.requestAnimationFrame(() => revealRange(range));
+    },
+    [view, setView, revealRange]
+  );
+
   const revealPointer = useCallback(
     (pointer: string) => {
       const range = editor && findPointerRange(editor.getValue(), pointer);
@@ -204,7 +278,6 @@ export const FlowEditorPage: React.FC = () => {
         key: 'save',
         text: busy === 'saving' ? 'Saving…' : 'Save',
         title: 'Save draft (Ctrl+S)',
-        ariaDescription: 'Keyboard shortcut Control S',
         iconProps: { iconName: 'Save' },
         disabled: noFlow || !!busy,
         buttonStyles: primaryCommandStyles,
@@ -290,18 +363,19 @@ export const FlowEditorPage: React.FC = () => {
         isDirty={isDirty}
         items={items}
         overflowItems={overflowItems}
+        farContent={<ViewSwitch value={view} onChange={setView} />}
       />
       <StatusMessages messages={messages} onDismiss={dismissMessage} />
 
       <div className={workspaceClass}>
         {!!savedText && (
-          <div className={editorPaneClass}>
+          <div className={editorPaneClass(view)}>
             <Editor
               defaultValue={savedText}
               language="json"
               theme={resolvedTheme === 'dark' ? 'vs-dark' : 'vs'}
               onMount={handleMount}
-              onChange={recomputeDirty}
+              onChange={handleEditorChange}
               options={{
                 minimap: { enabled: false },
                 scrollBeyondLastLine: false,
@@ -311,6 +385,18 @@ export const FlowEditorPage: React.FC = () => {
               }}
             />
           </div>
+        )}
+        {!!savedText && view !== 'json' && (
+          <section className={diagramPaneClass(view)} aria-label="Flow diagram view">
+            <FlowDiagramView
+              text={liveText || savedText}
+              flowName={name}
+              mode={view}
+              selectedKey={selectedNode}
+              onSelect={handleNodeSelect}
+              onRevealRange={showInEditor}
+            />
+          </section>
         )}
       </div>
 
