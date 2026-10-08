@@ -274,6 +274,43 @@ describe('Settings component', () => {
     });
   });
 
+  test('saves the toolkit master switch under appSettings.extensionEnabled', async () => {
+    const onSettingsChange = jest.fn();
+    render(<Settings storageService={mockStorageService} onSettingsChange={onSettingsChange} />);
+
+    const toggle = screen.getByRole('switch', { name: 'Enable toolkit on Power Automate pages' });
+    expect(toggle).toBeChecked();
+    expect(screen.getByText('Turns off token capture, recording and the designer button')).toBeInTheDocument();
+    fireEvent.click(toggle);
+
+    await waitFor(() => {
+      expect(mockStorageService.updateSettings).toHaveBeenCalledWith({ extensionEnabled: false });
+    });
+    expect(onSettingsChange).toHaveBeenCalledWith(expect.objectContaining({ extensionEnabled: false }));
+  });
+
+  test('saves the designer button toggle', async () => {
+    render(<Settings storageService={mockStorageService} />);
+
+    const toggle = screen.getByRole('switch', { name: "Show 'Edit JSON' button in the flow designer" });
+    expect(toggle).toBeChecked();
+    fireEvent.click(toggle);
+
+    await waitFor(() => {
+      expect(mockStorageService.updateSettings).toHaveBeenCalledWith({ showDesignerButton: false });
+    });
+  });
+
+  test('treats absent platform settings as on', async () => {
+    const { extensionEnabled, showDesignerButton, ...legacy } = defaultSettings;
+    (mockStorageService.getSettings as jest.Mock).mockResolvedValue(legacy);
+    render(<Settings storageService={mockStorageService} />);
+
+    await waitFor(() => expect(mockStorageService.getSettings).toHaveBeenCalled());
+    expect(screen.getByRole('switch', { name: 'Enable toolkit on Power Automate pages' })).toBeChecked();
+    expect(screen.getByRole('switch', { name: "Show 'Edit JSON' button in the flow designer" })).toBeChecked();
+  });
+
   test('shows tooltip for recording time info icon', async () => {
     render(<Settings storageService={mockStorageService} />);
     

@@ -236,4 +236,93 @@ describe('App', () => {
       mockChrome.storage.local.get = originalGet;
     }
   });
+
+  describe('content script injection', () => {
+    const renderApp = (overrides: Partial<React.ComponentProps<typeof App>> = {}) => render(<App isRecording={false}
+      isPowerAutomatePage={false}
+      isRecordingPage={false}
+      hasActionsOnPageToCopy={false}
+      actions={[]}
+      myClipboardActions={[]}
+      currentMode={Mode.Requests}
+      favoriteActions={[]}
+      {...overrides}
+      />);
+
+    let originalGet: any;
+    let calls: string[];
+    let storedSettings: any;
+
+    beforeEach(() => {
+      calls = [];
+      storedSettings = undefined;
+      originalGet = mockChrome.storage.local.get;
+      mockChrome.storage.local.get = jest.fn().mockImplementation((key: any, callback?: (result: any) => void) => {
+        const result = key === 'appSettings' ? { appSettings: storedSettings } : {};
+        if (callback) { callback(result); }
+        return Promise.resolve(result);
+      });
+      mockChrome.storage.local.set = jest.fn().mockResolvedValue(undefined);
+      mockChrome.runtime.sendMessage = jest.fn().mockImplementation((message: any, callback?: (r: any) => void) => {
+        calls.push(message?.type ?? `runtime:${message?.actionType}`);
+        if (callback) { callback(undefined); return undefined; }
+        return Promise.resolve(message?.type === 'ensure-content-script' ? { success: true, injected: true } : undefined);
+      });
+      mockChrome.tabs.query = jest.fn().mockImplementation((_q: any, callback: (tabs: any[]) => void) => {
+        calls.push('tabs.query');
+        callback([{ id: 7 }]);
+      });
+      mockChrome.tabs.sendMessage = jest.fn().mockImplementation((_id: number, message: any) => {
+        calls.push(`content:${message.actionType}`);
+      });
+    });
+
+    afterEach(() => {
+      mockChrome.storage.local.get = originalGet;
+    });
+
+    test('asks the background to inject the content script before any page message', async () => {
+      renderApp();
+
+      await waitFor(() => expect(calls).toContain('tabs.query'));
+      const ensureIndex = calls.indexOf('ensure-content-script');
+      const firstContentIndex = calls.indexOf('tabs.query');
+      expect(ensureIndex).toBeGreaterThanOrEqual(0);
+      expect(ensureIndex).toBeLessThan(firstContentIndex);
+    });
+
+    test('still talks to the page when the background cannot inject', async () => {
+      mockChrome.runtime.sendMessage = jest.fn().mockImplementation((message: any, callback?: (r: any) => void) => {
+        calls.push(message?.type ?? 'runtime');
+        if (callback) { callback(undefined); return undefined; }
+        return Promise.reject(new Error('Receiving end does not exist'));
+      });
+
+      renderApp();
+
+      await waitFor(() => expect(calls).toContain('tabs.query'));
+      expect(calls[0]).toBe('ensure-content-script');
+    });
+
+    test('shows a turn-on banner when the toolkit is switched off', async () => {
+      storedSettings = { extensionEnabled: false };
+      renderApp();
+
+      expect(await screen.findByText('Toolkit is turned off')).toBeInTheDocument();
+      act(() => {
+        screen.getByRole('button', { name: 'Turn on' }).click();
+      });
+
+      await waitFor(() => {
+        expect(mockChrome.storage.local.set).toHaveBeenCalledWith({ appSettings: expect.objectContaining({ extensionEnabled: true }) });
+      });
+      await waitFor(() => expect(screen.queryByText('Toolkit is turned off')).not.toBeInTheDocument());
+    });
+
+    test('does not show the banner when the setting is absent', async () => {
+      renderApp();
+      await waitFor(() => expect(calls).toContain('ensure-content-script'));
+      expect(screen.queryByText('Toolkit is turned off')).not.toBeInTheDocument();
+    });
+  });
 });

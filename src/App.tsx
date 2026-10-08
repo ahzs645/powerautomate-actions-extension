@@ -6,12 +6,21 @@ import { ISettingsModel, ThemeMode } from './models/ISettingsModel';
 import { StorageService } from './services/StorageService';
 import { ExtensionCommunicationService, PredefinedActionsService, PlaceholderService, designerCopyService } from './services';
 import { utilityActionsService } from './services/UtilityActionsService';
-import { DefaultButton, Icon, MessageBar, MessageBarType, Pivot, PivotItem, ThemeProvider } from '@fluentui/react';
+import { DefaultButton, Icon, MessageBar, MessageBarButton, MessageBarType, Pivot, PivotItem, ThemeProvider } from '@fluentui/react';
 import { getFluentTheme, loadFluentTheme, resolveTheme } from './theme/fluentTheme';
 import ActionsList from './components/ActionsList';
 import Settings from './components/Settings';
 import PredefinedActionsList from './components/PredefinedActionsList';
 import { FlowEditorActions } from './services/interfaces/IFlowEditorActions';
+
+interface IEnsureContentScriptResult {
+  success: boolean;
+  injected?: boolean;
+  error?: string;
+}
+
+const ENSURE_REUSE_MS = 1500;
+const ENSURE_TIMEOUT_MS = 3000;
 
 function App(initialState?: IInitialState | undefined) {
   const storageService = useMemo(() => { return new StorageService(); }, []);
@@ -41,6 +50,37 @@ function App(initialState?: IInitialState | undefined) {
   const [isFlowPage, setIsFlowPage] = useState<boolean>(false);
   const [isEnvironmentPage, setIsEnvironmentPage] = useState<boolean>(false);
   const [activeTheme, setActiveTheme] = useState<ThemeMode>('system');
+
+  // Content scripts are only declared for Power Platform / SharePoint hosts.
+  // Everywhere else (community blogs with copyable actions) the background
+  // injects one on demand using the activeTab grant. Every message to the page
+  // goes through sendToContent so it never races the injection. Calls made
+  // close together share one probe.
+  const ensureRef = useRef<{ at: number; promise: Promise<IEnsureContentScriptResult | undefined> } | null>(null);
+  const ensureContentScript = useCallback((): Promise<IEnsureContentScriptResult | undefined> => {
+    const now = Date.now();
+    if (ensureRef.current && now - ensureRef.current.at < ENSURE_REUSE_MS) {
+      return ensureRef.current.promise;
+    }
+    const request = (async () => {
+      try {
+        return await chrome.runtime.sendMessage({ type: 'ensure-content-script' }) as IEnsureContentScriptResult | undefined;
+      } catch (error) {
+        console.log('ensure-content-script failed, continuing', error);
+        return undefined;
+      }
+    })();
+    // Never block the popup on a worker that does not answer.
+    const timeout = new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), ENSURE_TIMEOUT_MS));
+    const promise = Promise.race([request, timeout]);
+    ensureRef.current = { at: now, promise };
+    return promise;
+  }, []);
+
+  const sendToContent = useCallback(async (message: IDataChromeMessage, callback?: (response: any) => void) => {
+    await ensureContentScript();
+    communicationService.sendRequest(message, AppElement.ReactApp, AppElement.Content, callback);
+  }, [communicationService, ensureContentScript]);
 
   const applyTheme = useCallback((mode: ThemeMode) => {
     setActiveTheme(mode);
@@ -80,31 +120,31 @@ function App(initialState?: IInitialState | undefined) {
     if (isRecordingPageSetting !== null) {
       setIsRecordingPage(isRecordingPageSetting);
     } else {
-      communicationService.sendRequest({ actionType: ActionType.CheckRecordingPage, message: "Check Recording Page" }, AppElement.ReactApp, AppElement.Content, (response) => {
+      sendToContent({ actionType: ActionType.CheckRecordingPage, message: "Check Recording Page" }, (response) => {
         setIsRecordingPage(response);
       });
     }
-  }, [communicationService]);
+  }, [sendToContent]);
 
   const getClassicPASetting = useCallback(async (isPAEditorPage: boolean | null) => {
     if (isPAEditorPage !== null) {
       setIsPowerAutomatePage(isPAEditorPage);
     } else {
-      communicationService.sendRequest({ actionType: ActionType.CheckPowerAutomatePage, message: "Check PowerAutomate Page" }, AppElement.ReactApp, AppElement.Content, (response) => {
+      sendToContent({ actionType: ActionType.CheckPowerAutomatePage, message: "Check PowerAutomate Page" }, (response) => {
         setIsPowerAutomatePage(response)
       });
     }
-  }, [communicationService]);
+  }, [sendToContent]);
 
   const getNewPASetting = useCallback(async (isNewPAEditorPage: boolean | null) => {
     if (isNewPAEditorPage !== null) {
       setIsV3PowerAutomateEditor(isNewPAEditorPage);
     } else {
-      communicationService.sendRequest({ actionType: ActionType.CheckIsNewPowerAutomateEditorV3, message: "Check If Page is a new Power Automate editor" }, AppElement.ReactApp, AppElement.Content, (response) => {
+      sendToContent({ actionType: ActionType.CheckIsNewPowerAutomateEditorV3, message: "Check If Page is a new Power Automate editor" }, (response) => {
         setIsV3PowerAutomateEditor(response);
       });
     }
-  }, [communicationService]);
+  }, [sendToContent]);
 
   const stopRecordingTimer = useCallback(async () => {
     if (recordingTimerRef.current) {
@@ -224,10 +264,8 @@ function App(initialState?: IInitialState | undefined) {
   const handleCopyPredefinedAction = useCallback((action: IActionModel) => {
     const unresolved = utilityActionsService.hasUnresolvedTokens(action);
     if (isV3PowerAutomateEditor) {
-      communicationService.sendRequest(
+      sendToContent(
         { actionType: ActionType.SetSelectedActionsIntoClipboardV3, message: [action] },
-        AppElement.ReactApp,
-        AppElement.Content,
         (response) => {
           if (!response) {
             setNotificationMessage("Could not build the clipboard payload for this action");
@@ -245,15 +283,13 @@ function App(initialState?: IInitialState | undefined) {
         }
       );
     } else {
-      communicationService.sendRequest(
-        { actionType: ActionType.CopyAction, message: [action] },
-        AppElement.ReactApp,
-        AppElement.Content
+      sendToContent(
+        { actionType: ActionType.CopyAction, message: [action] }
       );
       setNotificationMessage("Action copied - paste it in the Power Automate editor");
       setIsSuccessNotification(true);
     }
-  }, [communicationService, isV3PowerAutomateEditor]);
+  }, [isV3PowerAutomateEditor, sendToContent]);
 
   const refreshPredefinedActions = useCallback(async () => {
     if (!settings) { return; }
@@ -293,12 +329,16 @@ function App(initialState?: IInitialState | undefined) {
     // Apply stored theme
     applyTheme(settings.theme || 'system');
 
+    // Make sure the page has a content script before asking it anything;
+    // a failure (chrome:// pages, the Web Store) just means no page features.
+    await ensureContentScript();
+
     getRecordingPageSetting(settings.isRecordingPage ?? null);
     getClassicPASetting(settings.isClassicPowerAutomatePage ?? null);
     getNewPASetting(settings.isModernPowerAutomatePage ?? null);
     checkFlowPage();
 
-    communicationService.sendRequest({ actionType: ActionType.CheckIfPageHasActionsToCopy, message: "Check If Page has actions to copy" }, AppElement.ReactApp, AppElement.Content, (response) => {
+    sendToContent({ actionType: ActionType.CheckIfPageHasActionsToCopy, message: "Check If Page has actions to copy" }, (response) => {
       setHasActionsOnPageToCopy(response)
     });
 
@@ -344,7 +384,7 @@ function App(initialState?: IInitialState | undefined) {
       }
     });
 
-  }, [communicationService, storageService, getRecordingPageSetting, getClassicPASetting, getNewPASetting, startRecordingTimer, stopRecordingTimer, loadPredefinedActions, checkFlowPage, applyTheme]);
+  }, [communicationService, storageService, getRecordingPageSetting, getClassicPASetting, getNewPASetting, startRecordingTimer, stopRecordingTimer, loadPredefinedActions, checkFlowPage, applyTheme, ensureContentScript, sendToContent]);
 
   useEffect(() => {
     initData();
@@ -368,8 +408,8 @@ function App(initialState?: IInitialState | undefined) {
       actionType: ActionType.CopyAllActionsFromPage,
       message: "Copy All Actions From the Page",
     }
-    communicationService.sendRequest(message, AppElement.ReactApp, AppElement.Content);
-  }, [communicationService])
+    sendToContent(message);
+  }, [sendToContent])
 
   const clearActionList = useCallback(() => {
     switch (currentMode) {
@@ -408,8 +448,8 @@ function App(initialState?: IInitialState | undefined) {
       actionType: ActionType.CopyAction,
       message: selectedActions,
     }
-    communicationService.sendRequest(message, AppElement.ReactApp, AppElement.Content);
-  }, [actions, myClipboardActions, favoriteActions, predefinedActions, currentMode, communicationService])
+    sendToContent(message);
+  }, [actions, myClipboardActions, favoriteActions, predefinedActions, currentMode, sendToContent])
 
   const deleteAction = useCallback((action: IActionModel, oldActions: IActionModel[], setActionsFunc: (value: React.SetStateAction<IActionModel[]>)
     => void, actionType: ActionType) => {
@@ -492,8 +532,8 @@ function App(initialState?: IInitialState | undefined) {
       actionType: ActionType.GetElementsFromMyClipboard,
       message: "Get My Clipboard Actions",
     }
-    communicationService.sendRequest(message, AppElement.ReactApp, AppElement.Content);
-  }, [communicationService])
+    sendToContent(message);
+  }, [sendToContent])
 
   const changeSelection = useCallback((action: IActionModel, oldActions: IActionModel[], setActionsFunc: (value: React.SetStateAction<IActionModel[]>) => void) => {
     const allActions = [...(oldActions || [])];
@@ -572,7 +612,7 @@ function App(initialState?: IInitialState | undefined) {
     // is a placeholder - say so rather than letting it fail at runtime.
     const unresolved = selectedActions.filter(a => utilityActionsService.hasUnresolvedTokens(a));
 
-    communicationService.sendRequest({ actionType: ActionType.SetSelectedActionsIntoClipboardV3, message: selectedActions }, AppElement.ReactApp, AppElement.Content, (response) => {
+    sendToContent({ actionType: ActionType.SetSelectedActionsIntoClipboardV3, message: selectedActions }, (response) => {
       if (!response) {
         setNotificationMessage("Could not build the clipboard payload from the selected actions");
         setIsSuccessNotification(false);
@@ -590,7 +630,7 @@ function App(initialState?: IInitialState | undefined) {
       setNotificationMessage("Actions have been copied - now you can paste them in the Power Automate editor");
       setIsSuccessNotification(true);
     });
-  }, [actions, myClipboardActions, favoriteActions, predefinedActions, currentMode, communicationService])
+  }, [actions, myClipboardActions, favoriteActions, predefinedActions, currentMode, sendToContent])
 
   const filterActionsBySearch = useCallback((actionsToFilter: IActionModel[]) => {
     if (!searchTerm || searchTerm.trim() === '') {
@@ -751,17 +791,15 @@ function App(initialState?: IInitialState | undefined) {
 
     if (await tryImportDesignerCopy(clipboardText)) { return; }
 
-    communicationService.sendRequest(
+    sendToContent(
       { actionType: ActionType.GetDesignerClipboardFallback, message: 'Get designer clipboard fallback' },
-      AppElement.ReactApp,
-      AppElement.Content,
       async (response) => {
         if (!(await tryImportDesignerCopy(response))) {
           setNotificationMessage('No copied designer action found. Copy an action in the designer first.');
           setIsSuccessNotification(false);
         }
       });
-  }, [communicationService, tryImportDesignerCopy]);
+  }, [tryImportDesignerCopy, sendToContent]);
 
   const openFlowEditor = useCallback(() => {
     chrome.runtime.sendMessage({ type: 'open-flow-editor' } as FlowEditorActions, (response) => {
@@ -815,6 +853,14 @@ function App(initialState?: IInitialState | undefined) {
     ></Icon>;
   }, [isFlowPage, openFlowEditor])
 
+  const [settingsRevision, setSettingsRevision] = useState(0);
+  const turnToolkitOn = useCallback(async () => {
+    const updated = await storageService.updateSettings({ extensionEnabled: true });
+    setSettings(updated);
+    // An open Settings view keeps its own copy; remount it so the toggle follows.
+    setSettingsRevision(r => r + 1);
+  }, [storageService]);
+
   const renderThemeToggle = useCallback(() => {
     const prefersDark = typeof window.matchMedia === 'function'
       && window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -850,6 +896,15 @@ function App(initialState?: IInitialState | undefined) {
           {renderSettingsButton()}
         </div>
       </header>
+      {settings?.extensionEnabled === false && (
+        <MessageBar
+          messageBarType={MessageBarType.warning}
+          isMultiline={false}
+          actions={<MessageBarButton onClick={turnToolkitOn}>Turn on</MessageBarButton>}
+        >
+          Toolkit is turned off
+        </MessageBar>
+      )}
       {notificationMessage ? <MessageBar
         messageBarType={isSuccessNotification ? MessageBarType.success : MessageBarType.warning}
         isMultiline={false}
@@ -864,8 +919,9 @@ function App(initialState?: IInitialState | undefined) {
 
       {showSettings ? (
         <div className="settings-panel">
-          <Settings 
-            storageService={storageService} 
+          <Settings
+            key={settingsRevision}
+            storageService={storageService}
             onSettingsChange={onSettingsChanged}
             placeholderService={placeholderService}
             onFavoritesImported={async () => {

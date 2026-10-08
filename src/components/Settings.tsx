@@ -163,6 +163,18 @@ const Settings: React.FC<SettingsProps> = ({ storageService, onSettingsChange, o
       updateAndNotify({ includeUnsafeUtilityActions: checked ?? false }),
     [updateAndNotify]);
 
+  // Read by the background worker and content scripts as appSettings.*;
+  // absent counts as on, so only an explicit false turns either off.
+  const handleExtensionEnabledChange = useCallback(
+    (_e: React.MouseEvent<HTMLElement>, checked?: boolean) =>
+      updateAndNotify({ extensionEnabled: checked ?? true }),
+    [updateAndNotify]);
+
+  const handleShowDesignerButtonChange = useCallback(
+    (_e: React.MouseEvent<HTMLElement>, checked?: boolean) =>
+      updateAndNotify({ showDesignerButton: checked ?? true }),
+    [updateAndNotify]);
+
   const handleSanitizeOnExportChange = useCallback(
     (_e: React.MouseEvent<HTMLElement>, checked?: boolean) =>
       updateAndNotify({ sanitizeOnExport: checked ?? true }),
@@ -574,6 +586,32 @@ const Settings: React.FC<SettingsProps> = ({ storageService, onSettingsChange, o
               label: { fontWeight: 'normal' },
               flexContainer: { display: 'flex', flexDirection: 'row', gap: '16px' }
             }}
+          />
+        </Stack>
+      </Stack>
+      <Separator />
+
+      <Stack tokens={{ childrenGap: 12 }}>
+        <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 8 }}>
+          <Stack styles={{ root: { flex: 1 } }}>
+            <Text>Enable toolkit on Power Automate pages</Text>
+            <Text variant="small" styles={{ root: { color: 'var(--color-fg-secondary)' } }}>
+              Turns off token capture, recording and the designer button
+            </Text>
+          </Stack>
+          <Toggle
+            checked={settings.extensionEnabled !== false}
+            onChange={handleExtensionEnabledChange}
+            ariaLabel="Enable toolkit on Power Automate pages"
+          />
+        </Stack>
+        <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 8 }}>
+          <Text styles={{ root: { flex: 1 } }}>Show 'Edit JSON' button in the flow designer</Text>
+          <Toggle
+            checked={settings.showDesignerButton !== false}
+            onChange={handleShowDesignerButtonChange}
+            disabled={settings.extensionEnabled === false}
+            ariaLabel="Show 'Edit JSON' button in the flow designer"
           />
         </Stack>
       </Stack>
