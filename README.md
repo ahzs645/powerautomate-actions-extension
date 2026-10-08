@@ -166,6 +166,7 @@ Connector actions (Office 365, Excel, …) get their icon from the flow's own `c
 **Merged from upstream** ([mkm17/powerautomate-actions-extension](https://github.com/mkm17/powerautomate-actions-extension))
 - Default predefined actions catalog loaded from the upstream `predefined-actions/` GitHub folder (file name becomes the category, cached for 1 hour, 24-hour back-off when GitHub rate-limits). Toggle it with **Settings → Load Default Actions**; it sits alongside the bundled utility pack and your own pack URLs, de-duplicated by id.
 - New SharePoint site/web predefined actions.
+- Edit the title, method, URL, body and action JSON of stored actions (recorded, My Clipboard and Favorites) from the action details panel.
 - Importing favorites now merges with the existing list and skips duplicate ids instead of replacing it.
 - The popup's runtime message listener is registered once and removed on unmount.
 
