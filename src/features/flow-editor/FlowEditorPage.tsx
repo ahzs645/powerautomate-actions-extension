@@ -75,6 +75,8 @@ export const FlowEditorPage: React.FC = () => {
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
 
   const {
+    envId,
+    flowId,
     name,
     environment,
     savedText,
@@ -451,7 +453,14 @@ export const FlowEditorPage: React.FC = () => {
         isOpen={comparisonPanelOpen}
         onDismiss={() => setComparisonPanelOpen(false)}
         currentFlowDefinition={panelText}
+        serverFlowDefinition={savedText}
         flowName={name}
+        envId={envId || ''}
+        flowId={flowId || ''}
+        onRevealPointer={(pointer) => {
+          setComparisonPanelOpen(false);
+          revealPointer(pointer);
+        }}
       />
       <SolutionAnalysisPanel isOpen={solutionPanelOpen} onDismiss={() => setSolutionPanelOpen(false)} />
     </div>
