@@ -105,6 +105,13 @@ describe('buildClientData / buildPublishXml', () => {
         expect(JSON.parse(buildClientData(DEFINITION, {})).properties).not.toHaveProperty('displayName');
     });
 
+    test('keeps the fields of the existing clientdata it does not manage', () => {
+        const base = { properties: { definition: { old: true }, connectionReferences: {}, templateName: 'tpl', extra: 1 }, schemaVersion: '1.0.0.0', other: 'x' };
+        const parsed = JSON.parse(buildClientData(DEFINITION, {}, undefined, base));
+        expect(parsed).toEqual({ properties: { definition: DEFINITION, connectionReferences: {}, templateName: 'tpl', extra: 1 }, schemaVersion: '1.0.0.0', other: 'x' });
+        expect(JSON.parse(buildClientData(DEFINITION, {}, undefined, 'not an object'))).toEqual({ properties: { connectionReferences: {}, definition: DEFINITION }, schemaVersion: '1.0.0.0' });
+    });
+
     test('PublishXml parameter wraps the id in braces', () => {
         expect(buildPublishXml(WF)).toBe(`<importexportxml><workflows><workflow>{${wf}}</workflow></workflows></importexportxml>`);
         expect(buildPublishXml(`{${WF}}`)).toBe(`<importexportxml><workflows><workflow>{${wf}}</workflow></workflows></importexportxml>`);
