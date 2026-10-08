@@ -131,9 +131,9 @@ const CopyWithOptionsModal: React.FC<ICopyWithOptionsModalProps> = ({
                                     )}
                                 </Stack>
                                 <IconButton
-                                    iconProps={{ iconName: 'Reset' }}
+                                    iconProps={{ iconName: 'Undo' }}
                                     title="Reset to global value"
-                                    ariaLabel="Reset"
+                                    ariaLabel={`Reset ${key} to global value`}
                                     onClick={() => handleReset(key)}
                                     styles={{ root: { height: 24, width: 24 } }}
                                 />
@@ -221,9 +221,9 @@ const CopyWithOptionsModal: React.FC<ICopyWithOptionsModalProps> = ({
                                             )}
                                         </Stack>
                                         <IconButton
-                                            iconProps={{ iconName: 'Reset' }}
+                                            iconProps={{ iconName: 'Undo' }}
                                             title="Reset to original"
-                                            ariaLabel="Reset"
+                                            ariaLabel="Reset expression to original"
                                             onClick={() => handleExpressionReset(expression)}
                                             styles={{ root: { height: 24, width: 24 } }}
                                         />
