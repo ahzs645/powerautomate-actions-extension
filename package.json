@@ -35,7 +35,10 @@
   },
   "scripts": {
     "start": "react-scripts start",
+    "build:validators": "node scripts/build-validators.js",
+    "prebuild": "node scripts/build-validators.js",
     "build": "craco build",
+    "pretest": "node scripts/build-validators.js",
     "test": "react-scripts test --coverage",
     "test:e2e": "npx playwright test",
     "eject": "react-scripts eject"

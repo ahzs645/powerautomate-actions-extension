@@ -55,26 +55,13 @@ export const FlowValidationResult: React.FC<FlowValidationResultProps> = ({
   // Perform schema validation when panel is open
   const schemaResult = useMemo<SchemaValidationResult | null>(() => {
     if (!isOpen || !flowDefinition) return null;
-
-    try {
-      const parsed = JSON.parse(flowDefinition);
-      const validator = new SchemaValidator();
-      // Validate the definition part of the flow
-      return validator.validateFlow(parsed.definition || parsed);
-    } catch (error) {
-      return {
-        isValid: false,
-        issues: [{
-          path: '',
-          message: `Invalid JSON: ${error instanceof Error ? error.message : 'Parse error'}`,
-          keyword: 'parse',
-          severity: 'error',
-          schemaPath: '',
-        }],
-        errorCount: 1,
-        warningCount: 0,
-      };
-    }
+    // validateFlowJson reports JSON syntax errors itself; anything else is a real
+    // validator result, never an "Invalid JSON" message.
+    const validator = new SchemaValidator();
+    const parsed = safeParse(flowDefinition);
+    return parsed.ok
+      ? validator.validateFlow(parsed.value.definition || parsed.value)
+      : validator.validateFlowJson(flowDefinition);
   }, [isOpen, flowDefinition]);
 
   const apiErrorColumns: IColumn[] = useMemo(
@@ -273,5 +260,13 @@ export const FlowValidationResult: React.FC<FlowValidationResultProps> = ({
     </Panel>
   );
 };
+
+function safeParse(text: string): { ok: true; value: any } | { ok: false } {
+  try {
+    return { ok: true, value: JSON.parse(text) };
+  } catch {
+    return { ok: false };
+  }
+}
 
 export default FlowValidationResult;
