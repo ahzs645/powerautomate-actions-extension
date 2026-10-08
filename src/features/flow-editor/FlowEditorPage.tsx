@@ -5,6 +5,7 @@ import {
 import { mergeStyles } from '@fluentui/react/lib/Styling';
 import Editor from '@monaco-editor/react';
 import * as monaco from 'monaco-editor/esm/vs/editor/editor.api';
+import './monacoSetup';
 import { useMemo, useState } from 'react';
 import { LoaderModal } from '../../components/shared/LoaderModal';
 import { StatusMessages } from './useStatusMessages';
@@ -233,3 +234,5 @@ export const FlowEditorPage: React.FC = () => {
     </>
   );
 };
+
+export default FlowEditorPage;
