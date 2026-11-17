@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActionButton, DefaultButton, IButtonStyles, IconButton, MessageBarButton, PrimaryButton, Dialog, DialogFooter, DialogType, MessageBar, MessageBarType, Pivot, PivotItem, ThemeProvider, TooltipHost } from '@fluentui/react';
 import './App.css';
 import { ActionType, IDataChromeMessage, AppElement, ICommunicationChromeMessage, IInitialState, Mode } from './models';
@@ -15,7 +15,12 @@ import { getFluentTheme, loadFluentTheme, resolveTheme } from './theme/fluentThe
 import ActionsList from './components/ActionsList';
 import Settings, { SettingsFocus } from './components/Settings';
 import PredefinedActionsList from './components/PredefinedActionsList';
-import { FlowEditorActions } from './services/interfaces/IFlowEditorActions';
+import { FlowEditorActions, RunExportMessage } from './services/interfaces/IFlowEditorActions';
+import { useActiveRunExportSession } from './features/run-history/useActiveRunExportSession';
+
+const RunHistoryExportPage = lazy(
+  () => import(/* webpackChunkName: "run-history-export" */ './features/run-history/RunHistoryExportPage')
+);
 
 interface IEnsureContentScriptResult {
   success: boolean;
@@ -98,6 +103,10 @@ function App(initialState?: IInitialState | undefined) {
   const [isEnvironmentPage, setIsEnvironmentPage] = useState<boolean>(false);
   const [activeTheme, setActiveTheme] = useState<ThemeMode>('system');
   const [isClearDialogOpen, setIsClearDialogOpen] = useState(false);
+  const [showRunExport, setShowRunExport] = useState(false);
+  const { session: runExportSession, onSessionChanged } = useActiveRunExportSession(
+    settings !== null && settings.extensionEnabled !== false,
+  );
 
   const notify = useCallback((text: string, kind: NotificationKind) => {
     setNotification({ text, kind });
@@ -164,7 +173,11 @@ function App(initialState?: IInitialState | undefined) {
     await storageService.updateSettings({ theme: next });
   }, [resolvedTheme, applyTheme, storageService]);
 
-  const listenToMessage = useCallback((message: ICommunicationChromeMessage, sender: chrome.runtime.MessageSender, sendResponse: (response?: any) => void) => {
+  const listenToMessage = useCallback((message: ICommunicationChromeMessage | RunExportMessage) => {
+    if ('type' in message) {
+      if (message.type === 'run-export-session-changed') onSessionChanged(message.tabId);
+      return;
+    }
     if (message.to !== AppElement.ReactApp) { return console.log('Incorrect message destination'); }
     switch (message.actionType) {
       case ActionType.ActionUpdated:
@@ -174,7 +187,7 @@ function App(initialState?: IInitialState | undefined) {
         message.message && setMyClipboardActions(message.message);
         break;
     }
-  }, []);
+  }, [onSessionChanged]);
 
   const getRecordingPageSetting = useCallback(async (isRecordingPageSetting: boolean | null) => {
     if (isRecordingPageSetting !== null) {
@@ -751,6 +764,7 @@ function App(initialState?: IInitialState | undefined) {
   }, [storageService]);
 
   const isToolkitOff = settings?.extensionEnabled === false;
+  const isExportView = showRunExport && !isToolkitOff;
   const isClassicDesigner = isPowerAutomatePage && !isV3PowerAutomateEditor;
 
   const detectedPage = useMemo(() => {
@@ -825,6 +839,14 @@ function App(initialState?: IInitialState | undefined) {
               allowDisabledFocus
             />
           ) : null}
+          {runExportSession && !isToolkitOff && (
+            <DefaultButton
+              text="Export runs"
+              styles={compactButtonStyles}
+              iconProps={{ iconName: 'Download' }}
+              onClick={() => setShowRunExport(true)}
+            />
+          )}
           {isFlowPage || !isEnvironmentPage ? (
             <DefaultButton
               text="Browse flows"
@@ -1053,7 +1075,11 @@ function App(initialState?: IInitialState | undefined) {
         </MessageBar>
       )}
 
-      {!showSettings && renderPrimaryArea()}
+      {!showSettings && (isExportView ? (
+        <div className="App-pagebar">
+          <ActionButton text="Back to actions" iconProps={{ iconName: 'Back' }} onClick={() => setShowRunExport(false)} />
+        </div>
+      ) : renderPrimaryArea())}
 
       {notification && (
         <MessageBar
@@ -1082,6 +1108,21 @@ function App(initialState?: IInitialState | undefined) {
             }}
           />
         </div>
+      ) : isExportView ? (
+        <main className="App-content">
+          {runExportSession ? (
+            <Suspense fallback={<MessageBar>Loading run exporter…</MessageBar>}>
+              <RunHistoryExportPage
+                key={`${runExportSession.tabId}:${runExportSession.envId}:${runExportSession.flowId}`}
+                envId={runExportSession.envId}
+                flowId={runExportSession.flowId}
+                source={runExportSession}
+              />
+            </Suspense>
+          ) : (
+            <MessageBar>Open a flow in Power Automate to export its runs.</MessageBar>
+          )}
+        </main>
       ) : (
         <>
           <Pivot

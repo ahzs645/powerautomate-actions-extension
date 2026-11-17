@@ -4,25 +4,40 @@ import { mergeStyles } from '@fluentui/react/lib/Styling';
 import Editor from '@monaco-editor/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { LoaderModal } from '../../components/shared/LoaderModal';
+import { useApiProviderContext } from '../../services/ApiProvider';
 import { useResolvedTheme } from '../../theme/useResolvedTheme';
+import RecentRunsPanel, { recentRunHistoryUrl } from '../run-history/RecentRunsPanel';
+import type { RecentStep } from '../run-history/runHistoryApi';
+import { dynamicRunLinkExpression } from '../run-history/runPayload';
 import { PublishConfirmDialog, SaveConfirmDialog } from './components/ConfirmDialogs';
+import { DraftRecoveryBanner } from './components/DraftRecoveryBanner';
 import { FlowEditorHeader, groupStartStyles, primaryCommandStyles } from './components/FlowEditorHeader';
 import { EditorView, isEditorView, ViewSwitch } from './components/ViewSwitch';
 import { FlowDiagramView } from './FlowDiagramView';
-import { downloadText, jsonFileName } from './browserActions';
-import { strategyFor } from './flowPersistence';
+import { ConnectionsPanel } from './ConnectionsPanel';
+import { ConnectionAvailabilityPanel } from './ConnectionAvailabilityPanel';
+import { FlowNavigationPanel, NavigationMode } from './FlowNavigationPanel';
+import { SolutionImportPanel } from './SolutionImportPanel';
+import { workflowNavigation } from './workflowNavigation';
+import { copyText, downloadText, jsonFileName } from './browserActions';
+import { parseEditorText, strategyFor } from './flowPersistence';
+import { ConnectionChange, describeConnectionChanges, getConnectionIssues } from './flowConnections';
 import { applyServerText, isTextDirty } from './editorSync';
 import { FlowAnalysisPanel } from './FlowAnalysisPanel';
 import { FlowComparisonPanel } from './FlowComparisonPanel';
+import { ManagedSolutionExportPanel } from './ManagedSolutionExportPanel';
 import { findActionRange, findPointerRange, JsonRange } from './flowJsonLocator';
 import { FlowValidationResult } from './FlowValidationResult';
 import { monaco } from './monacoSetup';
 import { readPreference, rememberSaveConfirmed, shouldConfirmSave, writePreference } from './savePreferences';
 import { SolutionAnalysisPanel } from './SolutionAnalysisPanel';
 import { useFlowEditor } from './useFlowEditor';
+import { useDefinitionView } from './useDefinitionView';
+import { useDraftRecovery } from './useDraftRecovery';
 import { StatusMessages } from './useStatusMessages';
 
 type IEditor = monaco.editor.IStandaloneCodeEditor;
+type WriteDialog = { kind: 'save' | 'publish'; text: string; baseline: string; connectionChanges: ConnectionChange[] };
 
 const pageClass = mergeStyles({
   flex: 1,
@@ -39,6 +54,13 @@ const workspaceClass = mergeStyles({
 });
 
 const VIEW_PREFERENCE_KEY = 'paToolkit.flowEditor.view';
+const editorOptions: monaco.editor.IStandaloneEditorConstructionOptions = {
+  minimap: { enabled: false },
+  scrollBeyondLastLine: false,
+  fontSize: 14,
+  wordWrap: 'on',
+  automaticLayout: true,
+};
 
 const editorPaneClass = (view: EditorView) =>
   mergeStyles({
@@ -47,7 +69,7 @@ const editorPaneClass = (view: EditorView) =>
     minHeight: 0,
     // Hidden rather than unmounted in Diagram view: the model, undo history and
     // scroll position survive switching back.
-    display: view === 'diagram' ? 'none' : 'block',
+    display: view === 'diagram' || view === 'definition' ? 'none' : 'block',
   });
 
 const diagramPaneClass = (view: EditorView) =>
@@ -60,17 +82,26 @@ const diagramPaneClass = (view: EditorView) =>
 
 export const FlowEditorPage: React.FC = () => {
   const resolvedTheme = useResolvedTheme();
+  const api = useApiProviderContext();
   const [editor, setEditor] = useState<IEditor | null>(null);
+  const [portalUrl] = useState(() => new URLSearchParams(window.location.search).get('portalUrl') ?? undefined);
+  const definitionView = useDefinitionView(editor);
   const [isDirty, setIsDirty] = useState(false);
-  const [dialog, setDialog] = useState<null | 'save' | 'publish'>(null);
+  const [dialog, setDialog] = useState<WriteDialog | null>(null);
   const [analysisPanelOpen, setAnalysisPanelOpen] = useState(false);
+  const [connectionsOpen, setConnectionsOpen] = useState(false);
+  const [recentRunsOpen, setRecentRunsOpen] = useState(false);
   const [comparisonPanelOpen, setComparisonPanelOpen] = useState(false);
   const [solutionPanelOpen, setSolutionPanelOpen] = useState(false);
+  const [managedExportOpen, setManagedExportOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const [availabilityOpen, setAvailabilityOpen] = useState(false);
+  const [navigationMode, setNavigationMode] = useState<NavigationMode>();
   /** Editor text captured when a panel opens, so panels analyse what you see. */
   const [panelText, setPanelText] = useState('');
   const [view, setViewState] = useState<EditorView>(() => {
     const stored = readPreference(VIEW_PREFERENCE_KEY);
-    return isEditorView(stored) ? stored : 'json';
+    return isEditorView(stored) && stored !== 'definition' ? stored : 'json';
   });
   /** Live editor text for the diagram; only tracked while the diagram is visible. */
   const [liveText, setLiveText] = useState('');
@@ -106,6 +137,7 @@ export const FlowEditorPage: React.FC = () => {
     getText: () => editorRef.current?.getValue(),
     onSaved: (sent, serverText) => onMessageSaveRef.current(sent, serverText),
   });
+  const recovery = useDraftRecovery({ envId, flowId, savedText, editor });
   const saveMethodLabel = strategyFor(saveMethod.effective).label;
 
   const environmentLabel = environment?.displayName || environment?.id || 'this environment';
@@ -123,21 +155,32 @@ export const FlowEditorPage: React.FC = () => {
   viewRef.current = view;
   const handleEditorChange = useCallback(() => {
     recomputeDirty();
-    if (viewRef.current !== 'json' && editor) setLiveText(editor.getValue());
+    if ((viewRef.current === 'diagram' || viewRef.current === 'split') && editor) setLiveText(editor.getValue());
   }, [recomputeDirty, editor]);
 
   const setView = useCallback(
     (next: EditorView) => {
+      if (next === viewRef.current) return;
+      if (next === 'definition') {
+        if (recovery.awaitingChoice || !editor) return;
+        const parsed = parseEditorText(editor.getValue(), name);
+        if (!parsed.ok || !definitionView.open()) {
+          showMessage(parsed.ok ? 'The definition could not be opened.' : parsed.error, MessageBarType.error);
+          return;
+        }
+      } else {
+        definitionView.close();
+        writePreference(VIEW_PREFERENCE_KEY, next);
+      }
       setViewState(next);
-      writePreference(VIEW_PREFERENCE_KEY, next);
-      if (next !== 'json') setLiveText(editor?.getValue() || savedTextRef.current);
+      if (next === 'diagram' || next === 'split') setLiveText(editor?.getValue() || savedTextRef.current);
     },
-    [editor]
+    [definitionView, editor, name, recovery.awaitingChoice, showMessage]
   );
 
   // The diagram needs text before the editor has mounted (Diagram view on load).
   useEffect(() => {
-    if (view !== 'json') setLiveText(editor?.getValue() || savedText);
+    if (view === 'diagram' || view === 'split') setLiveText(editor?.getValue() || savedText);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [savedText, editor]);
 
@@ -161,37 +204,52 @@ export const FlowEditorPage: React.FC = () => {
   }, [isDirty]);
 
   // --- Save / publish -------------------------------------------------------
-  const performSave = useCallback(async () => {
-    if (!editor) return;
-    const sent = editor.getValue();
-    const result = await saveDraft(sent);
-    if (result.ok) applyServerText(editor, sent, result.serverText);
-    recomputeDirty();
-  }, [editor, saveDraft, recomputeDirty]);
-
-  onMessageSaveRef.current = (sent, serverText) => {
-    if (editor) applyServerText(editor, sent, serverText);
+  const finishSave = (sent: string, serverText: string) => {
+    if (editor && applyServerText(editor, sent, serverText) === 'replaced') definitionView.sync(serverText);
+    recovery.onSaved(sent, serverText);
     recomputeDirty();
   };
+  onMessageSaveRef.current = finishSave;
 
-  const performPublish = useCallback(async () => {
-    if (!editor) return;
-    const sent = editor.getValue();
-    const result = await publish(sent);
-    if (result.ok) applyServerText(editor, sent, result.serverText);
-    recomputeDirty();
-  }, [editor, publish, recomputeDirty]);
+  const performWrite = useCallback(async (kind: WriteDialog['kind'], sent: string) => {
+    const result = await (kind === 'save' ? saveDraft(sent) : publish(sent));
+    if (result.ok) onMessageSaveRef.current(sent, result.serverText);
+  }, [saveDraft, publish]);
 
-  const requestSave = useCallback(() => {
-    if (!editor || busy || dialog) return;
-    if (shouldConfirmSave()) setDialog('save');
-    else performSave();
-  }, [editor, busy, dialog, performSave]);
+  const requestWrite = useCallback((kind: WriteDialog['kind']) => {
+    if (!editor || busy || dialog || recovery.awaitingChoice) return;
+    const text = editor.getValue();
+    const parsed = parseEditorText(text, name);
+    const issue = parsed.ok ? getConnectionIssues(parsed.doc)[0] : parsed.error;
+    if (!parsed.ok || issue) {
+      showMessage(`Cannot ${kind}: ${issue}`, MessageBarType.error);
+      return;
+    }
+    const baseline = savedTextRef.current;
+    const previous = parseEditorText(baseline, name);
+    const connectionChanges = previous.ok ? describeConnectionChanges(previous.doc, parsed.doc) : [];
+    if (kind === 'publish' || connectionChanges.length || shouldConfirmSave()) {
+      setDialog({ kind, text, baseline, connectionChanges });
+    } else {
+      void performWrite(kind, text);
+    }
+  }, [editor, busy, dialog, recovery.awaitingChoice, name, showMessage, performWrite]);
+
+  const confirmWrite = (dontAskAgain?: boolean) => {
+    if (!dialog) return;
+    setDialog(null);
+    if (editor?.getValue() !== dialog.text || savedTextRef.current !== dialog.baseline) {
+      showMessage('The flow changed after this preview opened. Review the current version and try again.', MessageBarType.warning);
+      return;
+    }
+    if (dialog.kind === 'save') rememberSaveConfirmed(!!dontAskAgain);
+    void performWrite(dialog.kind, dialog.text);
+  };
 
   // Ctrl/Cmd+S: Monaco handles it while the editor has focus (addCommand in
   // onMount); this listener covers focus anywhere else on the page.
-  const requestSaveRef = useRef(requestSave);
-  requestSaveRef.current = requestSave;
+  const requestSaveRef = useRef<() => void>(() => undefined);
+  requestSaveRef.current = () => requestWrite('save');
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -208,6 +266,17 @@ export const FlowEditorPage: React.FC = () => {
   const handleMount = useCallback((mounted: IEditor) => {
     mounted.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => requestSaveRef.current());
     setEditor(mounted);
+    const range = findPointerRange(mounted.getValue(), '/connectionReferences');
+    const fold = mounted.getAction('editor.fold');
+    const original = mounted.getPosition();
+    if (!range?.exact || range.endLine <= range.startLine || !fold || !original) return;
+    // Standalone Monaco's built-in action reads the selection instead of arguments.
+    const anchor = new monaco.Position(range.startLine, range.startColumn);
+    mounted.setPosition(anchor);
+    void fold.run().then(() => {
+      const current = mounted.getPosition();
+      if (current && anchor.equals(current)) mounted.setPosition(original);
+    }, () => undefined);
   }, []);
 
   // --- Reveal ----------------------------------------------------------------
@@ -251,21 +320,37 @@ export const FlowEditorPage: React.FC = () => {
     (pointer: string) => {
       const range = editor && findPointerRange(editor.getValue(), pointer);
       if (!range) return false;
-      revealRange(range);
+      if (viewRef.current === 'definition' || viewRef.current === 'diagram') setView('json');
+      window.requestAnimationFrame(() => revealRange(range));
       return true;
     },
-    [editor, revealRange]
+    [editor, revealRange, setView]
   );
 
   const revealOperation = useCallback(
     (operationName: string) => {
       const range = editor && findActionRange(editor.getValue(), operationName);
       if (!range) return false;
-      revealRange(range);
+      if (viewRef.current === 'definition' || viewRef.current === 'diagram') setView('json');
+      window.requestAnimationFrame(() => revealRange(range));
       return true;
     },
-    [editor, revealRange]
+    [editor, revealRange, setView]
   );
+
+  const revealRunStep = (step: RecentStep) => {
+    try {
+      const { operations } = workflowNavigation(editor?.getValue() || savedText);
+      const eligible = operations.filter(operation => operation.kind.toLowerCase() === step.kind);
+      const matches = eligible.filter(operation => operation.name === step.name);
+      const match = matches.length === 1 ? matches[0] : step.kind === 'trigger' && eligible.length === 1 ? eligible[0] : undefined;
+      if (!match || !revealPointer(match.pointer)) return false;
+      setRecentRunsOpen(false);
+      return true;
+    } catch {
+      return false;
+    }
+  };
 
   // --- Commands --------------------------------------------------------------
   const downloadJson = useCallback(() => {
@@ -287,7 +372,24 @@ export const FlowEditorPage: React.FC = () => {
     open(true);
   };
 
+  const openNavigation = (mode: NavigationMode) => () => {
+    setPanelText(editor?.getValue() || savedText);
+    setNavigationMode(mode);
+  };
+
   const noFlow = !editor || !savedText;
+  const runHistoryUrl = envId && flowId ? recentRunHistoryUrl({ envId, flowId }, portalUrl,
+    api.endpoints?.legacyApiUrl ?? api.endpoints?.powerPlatformApiUrl ?? api.endpoints?.apiUrl) : undefined;
+  const makerOrigin = runHistoryUrl ? new URL(runHistoryUrl).origin : undefined;
+  const copyRunLink = useCallback(async () => {
+    if (!makerOrigin) return;
+    const copied = await copyText(dynamicRunLinkExpression(makerOrigin));
+    showMessage(copied ? 'Dynamic run link expression copied.' : 'Clipboard access was unavailable.',
+      copied ? MessageBarType.success : MessageBarType.error);
+  }, [makerOrigin, showMessage]);
+  const manageUrl = runHistoryUrl && envId
+    ? new URL(`/environments/${encodeURIComponent(envId)}/${workflowEntityId ? 'solutions' : 'connections'}`, runHistoryUrl).href
+    : undefined;
   const items: ICommandBarItemProps[] = useMemo(
     () => [
       {
@@ -295,17 +397,17 @@ export const FlowEditorPage: React.FC = () => {
         text: busy === 'saving' ? 'Saving…' : 'Save',
         title: 'Save draft (Ctrl+S)',
         iconProps: { iconName: 'Save' },
-        disabled: noFlow || !!busy,
+        disabled: noFlow || !!busy || recovery.awaitingChoice,
         buttonStyles: primaryCommandStyles,
-        onClick: () => requestSave(),
+        onClick: () => requestWrite('save'),
       },
       {
         key: 'publish',
         text: busy === 'publishing' ? 'Publishing…' : 'Publish',
         title: 'Save and publish this flow',
         iconProps: { iconName: 'PublishContent' },
-        disabled: noFlow || !!busy,
-        onClick: () => setDialog('publish'),
+        disabled: noFlow || !!busy || recovery.awaitingChoice,
+        onClick: () => requestWrite('publish'),
       },
       {
         key: 'validate',
@@ -334,9 +436,31 @@ export const FlowEditorPage: React.FC = () => {
         disabled: noFlow,
         onClick: openWithText(setComparisonPanelOpen),
       },
+      {
+        key: 'connections',
+        text: 'Connections',
+        title: 'Inspect connection references and the steps that use them',
+        iconProps: { iconName: 'PlugConnected' },
+        disabled: noFlow,
+        onClick: openWithText(setConnectionsOpen),
+      },
+      {
+        key: 'recent-runs',
+        text: 'Recent runs',
+        iconProps: { iconName: 'History' },
+        disabled: noFlow,
+        onClick: () => setRecentRunsOpen(true),
+      },
+      {
+        key: 'find-action',
+        text: 'Find action',
+        iconProps: { iconName: 'Search' },
+        disabled: noFlow,
+        onClick: openNavigation('actions'),
+      },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [noFlow, busy, editor, savedText, requestSave, validate]
+    [noFlow, busy, editor, savedText, requestWrite, validate, recovery.awaitingChoice]
   );
 
   const overflowItems: ICommandBarItemProps[] = useMemo(
@@ -347,6 +471,40 @@ export const FlowEditorPage: React.FC = () => {
         iconProps: { iconName: 'Download' },
         disabled: noFlow,
         onClick: () => downloadJson(),
+      },
+      {
+        key: 'export-managed',
+        text: 'Export managed solution',
+        title: 'Review recipient settings and download a managed Power Platform solution',
+        iconProps: { iconName: 'Package' },
+        disabled: noFlow,
+        onClick: () => setManagedExportOpen(true),
+      },
+      {
+        key: 'prepare-import',
+        text: 'Prepare solution import',
+        iconProps: { iconName: 'Import' },
+        onClick: () => setImportOpen(true),
+      },
+      {
+        key: 'where-used',
+        text: 'Environment variables · Where used',
+        iconProps: { iconName: 'Variable' },
+        disabled: noFlow,
+        onClick: openNavigation('settings'),
+      },
+      {
+        key: 'copy-run-link',
+        text: 'Copy dynamic run link',
+        iconProps: { iconName: 'Link' },
+        disabled: !makerOrigin,
+        onClick: () => void copyRunLink(),
+      },
+      {
+        key: 'check-availability',
+        text: 'Check availability',
+        iconProps: { iconName: 'Health' },
+        onClick: () => setAvailabilityOpen(true),
       },
       {
         key: 'reconnect',
@@ -418,7 +576,11 @@ export const FlowEditorPage: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [
       noFlow,
+      editor,
+      savedText,
       downloadJson,
+      makerOrigin,
+      copyRunLink,
       reconnect,
       copyDiagnostics,
       saveMethod.effective,
@@ -455,27 +617,39 @@ export const FlowEditorPage: React.FC = () => {
         farContent={<ViewSwitch value={view} onChange={setView} />}
       />
       <StatusMessages messages={messages} onDismiss={dismissMessage} />
+      <DraftRecoveryBanner recovery={recovery} />
 
       <div className={workspaceClass}>
         {!!savedText && (
           <div className={editorPaneClass(view)}>
             <Editor
               defaultValue={savedText}
+              path="flow-document.json"
               language="json"
               theme={resolvedTheme === 'dark' ? 'vs-dark' : 'vs'}
               onMount={handleMount}
               onChange={handleEditorChange}
-              options={{
-                minimap: { enabled: false },
-                scrollBeyondLastLine: false,
-                fontSize: 14,
-                wordWrap: 'on',
-                automaticLayout: true,
-              }}
+              options={{ ...editorOptions, ariaLabel: 'Full flow JSON', readOnly: recovery.awaitingChoice }}
             />
           </div>
         )}
-        {!!savedText && view !== 'json' && (
+        {view === 'definition' && definitionView.initialValue !== undefined && (
+          <div className={editorPaneClass('json')}>
+            <Editor
+              defaultValue={definitionView.initialValue}
+              path="flow-definition.json"
+              language="json"
+              theme={resolvedTheme === 'dark' ? 'vs-dark' : 'vs'}
+              onMount={(mounted) => {
+                mounted.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => requestSaveRef.current());
+                definitionView.onMount(mounted);
+              }}
+              onChange={definitionView.onChange}
+              options={{ ...editorOptions, ariaLabel: 'Flow definition JSON' }}
+            />
+          </div>
+        )}
+        {!!savedText && (view === 'diagram' || view === 'split') && (
           <section className={diagramPaneClass(view)} aria-label="Flow diagram view">
             <FlowDiagramView
               text={liveText || savedText}
@@ -490,28 +664,23 @@ export const FlowEditorPage: React.FC = () => {
       </div>
 
       <SaveConfirmDialog
-        isOpen={dialog === 'save'}
+        isOpen={dialog?.kind === 'save'}
         flowName={flowName}
         environmentLabel={environmentLabel}
         saveMethodLabel={saveMethodLabel}
+        connectionChanges={dialog?.kind === 'save' ? dialog.connectionChanges : undefined}
         onCancel={() => setDialog(null)}
-        onConfirm={(dontAskAgain) => {
-          rememberSaveConfirmed(dontAskAgain);
-          setDialog(null);
-          performSave();
-        }}
+        onConfirm={confirmWrite}
       />
       <PublishConfirmDialog
-        isOpen={dialog === 'publish'}
+        isOpen={dialog?.kind === 'publish'}
         flowName={flowName}
         environmentLabel={environmentLabel}
         saveMethodLabel={saveMethodLabel}
+        connectionChanges={dialog?.kind === 'publish' ? dialog.connectionChanges : undefined}
         isDirty={isDirty}
         onCancel={() => setDialog(null)}
-        onConfirm={() => {
-          setDialog(null);
-          performPublish();
-        }}
+        onConfirm={confirmWrite}
       />
 
       <FlowValidationResult
@@ -535,7 +704,8 @@ export const FlowEditorPage: React.FC = () => {
         onRevealRange={(range) => {
           // Close the panel so the selection is actually visible in the editor.
           setAnalysisPanelOpen(false);
-          revealRange(range);
+          if (view === 'definition' || view === 'diagram') setView('json');
+          window.requestAnimationFrame(() => revealRange(range));
         }}
       />
       <FlowComparisonPanel
@@ -551,6 +721,27 @@ export const FlowEditorPage: React.FC = () => {
           revealPointer(pointer);
         }}
       />
+      <ConnectionsPanel
+        isOpen={connectionsOpen}
+        onDismiss={() => setConnectionsOpen(false)}
+        text={panelText}
+        manageUrl={manageUrl}
+        isSolutionFlow={!!workflowEntityId}
+        onReveal={(pointer) => {
+          setConnectionsOpen(false);
+          revealPointer(pointer);
+        }}
+      />
+      {envId && flowId && <RecentRunsPanel api={api} envId={envId} flowId={flowId} portalUrl={portalUrl}
+        isOpen={recentRunsOpen} onDismiss={() => setRecentRunsOpen(false)} onRevealStep={revealRunStep} onReconnect={reconnect} />}
+      {managedExportOpen && envId && <ManagedSolutionExportPanel api={api} envId={envId} workflowId={workflowEntityId} flowName={name}
+        isDirty={isDirty} onReconnect={reconnect} onDismiss={() => setManagedExportOpen(false)} />}
+      {importOpen && envId && <SolutionImportPanel api={api} envId={envId} environmentLabel={environmentLabel} portalUrl={makerOrigin}
+        onReconnect={reconnect} onDismiss={() => setImportOpen(false)} />}
+      {availabilityOpen && envId && flowId && <ConnectionAvailabilityPanel api={api} envId={envId} flowId={flowId}
+        onReconnect={reconnect} onDismiss={() => setAvailabilityOpen(false)} />}
+      {navigationMode && <FlowNavigationPanel mode={navigationMode} text={panelText} onDismiss={() => setNavigationMode(undefined)}
+        onReveal={pointer => { setNavigationMode(undefined); revealPointer(pointer); }} />}
       <SolutionAnalysisPanel isOpen={solutionPanelOpen} onDismiss={() => setSolutionPanelOpen(false)} />
     </div>
   );

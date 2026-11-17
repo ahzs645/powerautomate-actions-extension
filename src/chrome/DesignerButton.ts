@@ -12,30 +12,43 @@
  * button in place across SPA navigation.
  */
 
-import { GUID_SOURCE } from './hosts';
+import { GUID_SOURCE, isMakerUrl } from './hosts';
 
 export type MakerPageMatch =
     | { kind: 'flow'; envId: string; flowId: string }
+    | { kind: 'runHistory'; envId: string; flowId: string }
     | { kind: 'flowsList'; envId: string };
 
 const FLOW_PAGE_RE = new RegExp(
-    `/environments/([^/?#]+)/(?:solutions/[^/?#]+/)?flows/(?:shared/)?(${GUID_SOURCE})(?:[/?#]|$)`, 'i');
+    `/environments/([^/?#]+)/(?:solutions/[^/?#]+/)?flows/(?:shared/)?(${GUID_SOURCE})(?=[/?#]|$)`, 'i');
 const FLOWS_LIST_RE = /\/environments\/([^/?#]+)\/flows(?:\/(?:shared|team|my))?\/?(?:[?#]|$)/i;
 
 /** Parse a maker URL into a flow page or an environment's flows list. */
 export function parseMakerPageUrl(href: string): MakerPageMatch | null {
-    let url: URL;
+    let path: string;
+    let pathname: string;
     try {
-        url = new URL(href);
+        const url = new URL(href);
+        pathname = decodeURIComponent(url.pathname);
+        path = pathname + url.search + url.hash;
     } catch {
         return null;
     }
-    const path = decodeURIComponent(url.pathname) + url.search + url.hash;
     const flow = FLOW_PAGE_RE.exec(path);
-    if (flow) return { kind: 'flow', envId: flow[1], flowId: flow[2].toLowerCase() };
+    if (flow) {
+        const suffix = pathname.slice(flow.index + flow[0].length);
+        const kind = /^\/runs\/?$/i.test(suffix) ? 'runHistory' : 'flow';
+        return { kind, envId: flow[1], flowId: flow[2].toLowerCase() };
+    }
     const list = FLOWS_LIST_RE.exec(path);
     if (list) return { kind: 'flowsList', envId: list[1] };
     return null;
+}
+
+export function parseRunHistoryUrl(href?: string) {
+    if (!href || !isMakerUrl(href)) return null;
+    const match = parseMakerPageUrl(href);
+    return match?.kind === 'runHistory' ? match : null;
 }
 
 export const BUTTON_ATTR = 'data-pa-toolkit-button';
@@ -56,6 +69,10 @@ const LIST_SIGNALS: Array<{ name: string; re: RegExp; weight: number }> = [
     { name: 'new', re: /^\+?\s*new flow\b|^new$/i, weight: 2 },
     { name: 'import', re: /^import\b/i, weight: 1 },
     { name: 'edit', re: /^edit columns$/i, weight: 1 },
+];
+const RUN_HISTORY_SIGNALS = [
+    { name: 'csv', re: /\b(?:get|download)\s+\.?(?:csv)\b/i, weight: 2 },
+    { name: 'edit', re: /^edit flow$/i, weight: 1 },
 ];
 
 const TOOLBAR_SELECTOR = '[role="toolbar"], [role="menubar"], .ms-CommandBar, [data-automation-id*="CommandBar"], [data-automation-id*="commandbar"], [data-automation-id*="Toolbar"], [data-automation-id*="toolbar"]';
@@ -113,7 +130,7 @@ export interface ToolbarMatch {
  * toolbars (e.g. the portal header) from matching.
  */
 export function findToolbar(doc: Document, kind: MakerPageMatch['kind']): ToolbarMatch | null {
-    const signals = kind === 'flow' ? DESIGNER_SIGNALS : LIST_SIGNALS;
+    const signals = kind === 'runHistory' ? RUN_HISTORY_SIGNALS : kind === 'flow' ? DESIGNER_SIGNALS : LIST_SIGNALS;
     const minScore = kind === 'flow' ? 3 : 2;
 
     let best: { toolbar: Element; score: number; anchor?: Element } | null = null;
@@ -134,11 +151,11 @@ export function findToolbar(doc: Document, kind: MakerPageMatch['kind']): Toolba
 
     // Strategy 2: a recognisable control, then walk up to a container with siblings
     const controls = Array.from(doc.querySelectorAll(CONTROL_SELECTOR)).filter((c) => !isOurs(c) && !isHidden(c));
+    const primarySignal = kind === 'runHistory' ? RUN_HISTORY_SIGNALS[0].re :
+        kind === 'flow' ? /^(save|save draft)$/i : /^\+?\s*new flow$/i;
     const primary = controls.find((c) => {
         const label = labelOf(c);
-        return kind === 'flow'
-            ? label.split(' | ').some((p) => /^(save|save draft)$/i.test(p.trim()))
-            : label.split(' | ').some((p) => /^\+?\s*new flow$/i.test(p.trim()));
+        return label.split(' | ').some((p) => primarySignal.test(p.trim()));
     });
     if (primary) {
         let node: Element | null = primary.parentElement;
@@ -187,16 +204,17 @@ function ensureStyle(doc: Document) {
 }
 
 interface ButtonSpec {
-    id: 'edit-json' | 'flows-list';
+    id: 'edit-json' | 'flows-list' | 'export-runs';
     label: string;
     title: string;
     icon: string;
-    message: 'open-flow-editor' | 'open-flows-list';
+    message: 'open-flow-editor' | 'open-flows-list' | 'open-run-history-export';
 }
 
 const SPECS: Record<MakerPageMatch['kind'], ButtonSpec> = {
     flow: { id: 'edit-json', label: 'Edit JSON', title: 'Open this flow in the Power Automate Toolkit JSON editor', icon: CODE_ICON, message: 'open-flow-editor' },
     flowsList: { id: 'flows-list', label: 'Toolkit flows list', title: 'Open this environment\'s flows in the Power Automate Toolkit', icon: LIST_ICON, message: 'open-flows-list' },
+    runHistory: { id: 'export-runs', label: 'Export runs', title: 'Download run history and step logs with Power Automate Toolkit', icon: LIST_ICON, message: 'open-run-history-export' },
 };
 
 export interface DesignerButtonOptions {
@@ -352,6 +370,12 @@ export class DesignerButtonController {
         const wrapper = this.doc.createElement('span');
         wrapper.setAttribute(BUTTON_ATTR, spec.id);
         wrapper.setAttribute('data-placement', placement);
+        wrapper.appendChild(this.createControl(spec, inMenubar));
+        if (spec.id === 'export-runs') wrapper.appendChild(this.createControl(SPECS.flow, inMenubar));
+        return wrapper;
+    }
+
+    private createControl(spec: ButtonSpec, inMenubar: boolean): HTMLButtonElement {
         const button = this.doc.createElement('button');
         button.type = 'button';
         button.setAttribute('aria-label', `${spec.label} (Power Automate Toolkit)`);
@@ -371,8 +395,7 @@ export class DesignerButtonController {
                 this.activate(button, spec);
             }
         });
-        wrapper.appendChild(button);
-        return wrapper;
+        return button;
     }
 
     private activate(button: HTMLElement, spec: ButtonSpec) {

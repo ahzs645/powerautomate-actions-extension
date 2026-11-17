@@ -2,16 +2,17 @@ import { Icon } from '@fluentui/react/lib/Icon';
 import { mergeStyles } from '@fluentui/react/lib/Styling';
 import { useRef } from 'react';
 
-export type EditorView = 'json' | 'diagram' | 'split';
+export type EditorView = 'json' | 'definition' | 'diagram' | 'split';
 
 export const EDITOR_VIEWS: Array<{ key: EditorView; text: string; icon: string; title: string }> = [
-  { key: 'json', text: 'JSON', icon: 'Code', title: 'JSON editor only' },
+  { key: 'json', text: 'Full JSON', icon: 'Code', title: 'Edit the full flow JSON, including connection references' },
+  { key: 'definition', text: 'Definition only', icon: 'PageEdit', title: 'Edit flow logic with connection references kept in the full document' },
   { key: 'diagram', text: 'Diagram', icon: 'Flow', title: 'Diagram only' },
   { key: 'split', text: 'Split', icon: 'DoubleColumn', title: 'JSON and diagram side by side' },
 ];
 
 export function isEditorView(value: unknown): value is EditorView {
-  return value === 'json' || value === 'diagram' || value === 'split';
+  return EDITOR_VIEWS.some(view => view.key === value);
 }
 
 const groupClass = mergeStyles({
@@ -46,7 +47,7 @@ const optionClass = (checked: boolean) =>
   });
 
 /**
- * Segmented "JSON | Diagram | Split" control. A radio group: Tab reaches the
+ * Segmented editor view control. A radio group: Tab reaches the
  * selected option, arrow keys move between options, as WAI-ARIA describes.
  */
 export const ViewSwitch: React.FC<{ value: EditorView; onChange: (view: EditorView) => void }> = ({

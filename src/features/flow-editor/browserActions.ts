@@ -28,7 +28,10 @@ export async function copyText(text: string): Promise<boolean> {
 
 /** Save text as a file through a temporary download link. */
 export function downloadText(fileName: string, text: string, type = 'application/json') {
-  const blob = new Blob([text], { type });
+  downloadBlob(fileName, new Blob([text], { type }));
+}
+
+export function downloadBlob(fileName: string, blob: Blob) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;

@@ -183,7 +183,13 @@ export class FlowComparisonService {
 
   /** Compare a flow against a stored baseline (baseline on the left). */
   compareWithBaseline(baseline: FlowBaseline, newFlow: any): FlowComparisonResult {
-    return this.compare(baseline.definition, newFlow);
+    if (Object.prototype.hasOwnProperty.call(baseline.definition, 'connectionReferences')) {
+      return this.compare(baseline.definition, newFlow);
+    }
+    // Older baselines intentionally discarded the map; it cannot be reconstructed.
+    const current = this.normalizeFlow(newFlow);
+    delete current.connectionReferences;
+    return this.compare(baseline.definition, current);
   }
 
   /**
@@ -213,7 +219,6 @@ export class FlowComparisonService {
       '$schema',
       'contentVersion',
       'parameters',
-      'connectionReferences', // Often has environment-specific data
     ];
 
     for (const key of Object.keys(obj)) {
@@ -243,7 +248,13 @@ export class FlowComparisonService {
     for (const diff of differences) {
       const pathString = diff.pathString.toLowerCase();
 
-      if (pathString.includes('actions') || pathString.includes('definition.actions')) {
+      const host = diff.path.lastIndexOf('host');
+      if (diff.path[0] === 'connectionReferences' ||
+          (diff.path[1] === 'parameters' && diff.path[2] === '$connections') ||
+          (host > 0 && diff.path[host - 1] === 'inputs' &&
+            ['connection', 'connectionName', 'connectionReferenceName', 'apiId'].includes(diff.path[host + 1]))) {
+        summary.connectionsChanged++;
+      } else if (pathString.includes('actions') || pathString.includes('definition.actions')) {
         if (diff.kind === 'N') {
           summary.actionsAdded++;
         } else if (diff.kind === 'D') {

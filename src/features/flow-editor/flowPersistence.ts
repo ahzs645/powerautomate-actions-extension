@@ -9,6 +9,7 @@
 
 import { IApiProvider } from '../../services/ApiProvider';
 import { dataverseSaveStrategy } from './dataverseSaveStrategy';
+import { jsonObject } from './flowConnections';
 
 export const EDITOR_SCHEMA_URI = 'https://power-automate-toolkit.local/flow-editor.json#';
 
@@ -118,7 +119,11 @@ export const flowServiceSaveStrategy: FlowSaveStrategy = {
     }
     return documentFromFlowResponse({
       ...response,
-      properties: { displayName: doc.displayName, ...response.properties },
+      properties: {
+        displayName: doc.displayName,
+        connectionReferences: doc.connectionReferences,
+        ...response.properties,
+      },
     });
   },
 
@@ -211,15 +216,24 @@ export function parseEditorText(text: string, displayName: string): ParsedEditor
       error: `Invalid JSON: ${error instanceof Error ? error.message : String(error)}`,
     };
   }
-  if (!parsed || typeof parsed !== 'object' || !parsed.definition) {
-    return { ok: false, error: 'Missing "definition" property in flow definition' };
+  if (!jsonObject(parsed?.definition)) {
+    return { ok: false, error: 'The flow JSON must contain a "definition" object.' };
+  }
+  const references = jsonObject(parsed.connectionReferences);
+  if (!references) {
+    return { ok: false, error: 'The full flow JSON must contain a "connectionReferences" object. Use Definition only to edit the flow logic.' };
+  }
+  for (const [alias, reference] of Object.entries(references)) {
+    if (!jsonObject(reference)) {
+      return { ok: false, error: `Connection reference ${JSON.stringify(alias)} must be an object.` };
+    }
   }
   return {
     ok: true,
     doc: {
       displayName,
       definition: parsed.definition,
-      connectionReferences: parsed.connectionReferences || {},
+      connectionReferences: references,
     },
   };
 }

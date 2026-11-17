@@ -2,6 +2,7 @@ import { DefaultButton, PrimaryButton } from '@fluentui/react/lib/Button';
 import { Checkbox } from '@fluentui/react/lib/Checkbox';
 import { Dialog, DialogFooter, DialogType } from '@fluentui/react/lib/Dialog';
 import { useEffect, useState } from 'react';
+import type { ConnectionChange } from '../flowConnections';
 
 interface FlowIdentity {
   flowName: string;
@@ -9,13 +10,32 @@ interface FlowIdentity {
   environmentLabel: string;
   /** How the flow will be written, e.g. "the Flow service" or "Dataverse (experimental)". */
   saveMethodLabel?: string;
+  connectionChanges?: ConnectionChange[];
 }
 
 const methodSentence = (verb: string, label?: string) => (label ? ` ${verb} through ${label}.` : '');
 
+function ConnectionChangeList({ changes }: { changes?: ConnectionChange[] }) {
+  if (!changes?.length) return null;
+  return (
+    <div>
+      <strong>Connection changes</strong>
+      <ul style={{ maxHeight: 240, overflow: 'auto', overflowWrap: 'anywhere' }}>
+        {changes.map(change => (
+          <li key={change.key}>
+            {change.text}
+            {!!change.fields?.length && <div>{change.fields.join(', ')}</div>}
+            {change.uses.length > 0 && <div>{change.uses.map(use => `${use.kind} ${use.label}`).join(', ')}</div>}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 export const SaveConfirmDialog: React.FC<
   FlowIdentity & { isOpen: boolean; onConfirm: (dontAskAgain: boolean) => void; onCancel: () => void }
-> = ({ isOpen, flowName, environmentLabel, saveMethodLabel, onConfirm, onCancel }) => {
+> = ({ isOpen, flowName, environmentLabel, saveMethodLabel, connectionChanges, onConfirm, onCancel }) => {
   const [dontAskAgain, setDontAskAgain] = useState(false);
   useEffect(() => {
     if (isOpen) setDontAskAgain(false);
@@ -36,6 +56,7 @@ export const SaveConfirmDialog: React.FC<
       modalProps={{ isBlocking: true }}
       minWidth={420}
     >
+      <ConnectionChangeList changes={connectionChanges} />
       <Checkbox
         label="Don't ask again"
         checked={dontAskAgain}
@@ -51,7 +72,7 @@ export const SaveConfirmDialog: React.FC<
 
 export const PublishConfirmDialog: React.FC<
   FlowIdentity & { isOpen: boolean; isDirty: boolean; onConfirm: () => void; onCancel: () => void }
-> = ({ isOpen, flowName, environmentLabel, saveMethodLabel, isDirty, onConfirm, onCancel }) => (
+> = ({ isOpen, flowName, environmentLabel, saveMethodLabel, connectionChanges, isDirty, onConfirm, onCancel }) => (
   <Dialog
     hidden={!isOpen}
     onDismiss={onCancel}
@@ -66,6 +87,7 @@ export const PublishConfirmDialog: React.FC<
     modalProps={{ isBlocking: true }}
     minWidth={440}
   >
+    <ConnectionChangeList changes={connectionChanges} />
     <DialogFooter>
       <PrimaryButton text="Publish" onClick={onConfirm} />
       <DefaultButton text="Cancel" onClick={onCancel} />

@@ -15,6 +15,7 @@ import {
   statusOf,
 } from './components/StatusContent';
 import { readDataverseEtag } from './dataverseSaveStrategy';
+import { getConnectionIssues } from './flowConnections';
 import {
   dataverseAvailability,
   documentFromFlowResponse,
@@ -257,12 +258,16 @@ export const useFlowEditor = (host: FlowEditorHost = {}) => {
   /** Retry a failed Flow service save once through Dataverse (from the offer in the error bar). */
   const retryThroughDataverse = useCallback(
     async (failedText: string, rememberForEnvironment: boolean) => {
-      if (rememberForEnvironment) await setSavePreference('dataverse');
       const text = hostRef.current.getText?.() ?? failedText;
+      if (text !== failedText) {
+        showMessage('The editor changed after the failed save. Review and save your current edits to try again.', MessageBarType.warning);
+        return;
+      }
+      if (rememberForEnvironment) await setSavePreference('dataverse');
       const outcome = await saveDraftRef.current(text, { method: 'dataverse' });
       if (outcome.ok) hostRef.current.onSaved?.(text, outcome.serverText);
     },
-    [setSavePreference]
+    [setSavePreference, showMessage]
   );
 
   const showSaveError = useCallback(
@@ -324,6 +329,11 @@ export const useFlowEditor = (host: FlowEditorHost = {}) => {
       const parsed = parseEditorText(text, name);
       if (!parsed.ok) {
         showMessage(`Cannot save: ${parsed.error}`, MessageBarType.error);
+        return { ok: false };
+      }
+      const connectionIssue = getConnectionIssues(parsed.doc)[0];
+      if (connectionIssue) {
+        showMessage(`Cannot save: ${connectionIssue} Open Connections to see the affected steps.`, MessageBarType.error);
         return { ok: false };
       }
       if (!name.trim()) {
@@ -463,6 +473,11 @@ export const useFlowEditor = (host: FlowEditorHost = {}) => {
       const parsed = parseEditorText(text, name);
       if (!parsed.ok) {
         showMessage(`Cannot validate: ${parsed.error}`, MessageBarType.error);
+        return;
+      }
+      const connectionIssue = getConnectionIssues(parsed.doc)[0];
+      if (connectionIssue) {
+        showMessage(`Cannot validate: ${connectionIssue} Open Connections to see the affected steps.`, MessageBarType.error);
         return;
       }
 

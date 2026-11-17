@@ -175,6 +175,7 @@ interface ChildLocation {
 function findChild(json: string, containerStart: number, segment: string): ChildLocation | null {
   const open = json[containerStart];
   if (open === '{') {
+    let match: ChildLocation | null = null;
     let i = skipWhitespace(json, containerStart + 1);
     while (i < json.length && json[i] !== '}') {
       if (json[i] !== '"') return null;
@@ -191,11 +192,12 @@ function findChild(json: string, containerStart: number, segment: string): Child
       j = skipWhitespace(json, j + 1);
       const valueEnd = scanValue(json, j);
       if (valueEnd === -1) return null;
-      if (key === segment) return { memberStart: i, valueStart: j, valueEnd };
+      // JSON.parse uses the last occurrence of a duplicate object key.
+      if (key === segment) match = { memberStart: i, valueStart: j, valueEnd };
       i = skipWhitespace(json, valueEnd);
       if (json[i] === ',') i = skipWhitespace(json, i + 1);
     }
-    return null;
+    return match;
   }
 
   if (open === '[') {

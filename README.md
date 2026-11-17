@@ -74,8 +74,7 @@ In version 1.0.4 the new feature was added to the extension. It allows for store
 
 The tool is available on the Chrome Store [here](https://chrome.google.com/webstore/detail/power-automate-actions-ha/eoeddkppcaagdeafjfiopeldffkhjodl?hl=pl&authuser=0)  
 
-The repository also includes the build package, allowing for direct installation.
-To do so please unpack *[ApplicationBuild](https://github.com/mkm17/powerautomate-actions-extension/blob/main/ApplicationBuild.zip)* zip file and follow the steps described [here](https://support.google.com/chrome/a/answer/2714278?hl=en) to install the package locally on a browser. 
+For a local install, download the extension ZIP from [GitHub Releases](https://github.com/ahzs645/powerautomate-actions-extension/releases) and extract it. In Chrome, go to `chrome://extensions`, enable **Developer mode**, and choose **Load unpacked**. Select the extracted folder that contains `manifest.json`. If you build from source with `npm run build`, select the `build/` folder.
 
 
 ## **6. Utility function pack**
@@ -114,6 +113,42 @@ Copied and recorded actions carry more than the operation definition: the design
 Favorites exports are now scrubbed by default — drive item ids, SharePoint hostnames, file names, email addresses and query-string secrets are all removed, and the export confirmation reports what was taken out. The behaviour can be turned off under **Settings → Favorite Actions Management**.
 
 <br />
+
+## **8. Export run history and step logs**
+
+Open a cloud flow in Power Automate, then choose **Export runs** in the Toolkit popup or side panel. The export view follows the active flow. If it needs to connect, use **Open Run history** and keep the signed-in Power Automate tab open. The Run history toolbar also has an **Export runs** button.
+
+Select inclusive start and end dates in your browser's time zone, choose **Prepare export**, then choose **Download ZIP**. The exporter follows all available history pages and selects runs by their start time. Keep the popup open until you download the ZIP, or use the side panel.
+
+The ZIP includes `runs.csv`, `steps.csv`, one JSON log per run under `runs/`, and `manifest.json`. The JSON logs include trigger and action status, timing, errors, retries, and available loop iteration records. The manifest records the date range and any logs the exporter couldn't retrieve.
+
+Enable **Include step inputs and outputs** when you need the payloads for analysis. These may contain sensitive data. Power Automate's secure inputs and outputs stay hidden. The extension creates the ZIP locally, and the available history is limited by the flow's retention window.
+
+Choose **Excel** for a workbook with a linked run summary, one sheet per run, and a sheet for any export issues. Choose **ZIP** for complete JSON payloads that exceed Excel's cell length limit.
+
+## **9. Edit flow logic and inspect connections**
+
+Open **Edit flow JSON**. Choose **Definition only** to edit the workflow body while keeping the loaded connection references with the working draft. **Full JSON** shows the entire document with the references folded initially. **Download JSON** exports the full document from either view.
+
+**Connections** shows each binding alias and the triggers and actions that use it. Save and Publish check for missing aliases and show a preview when bindings change. For account or solution connection reference changes, follow the link to Power Automate from the Connections panel.
+
+When you reopen a flow during the same browser session, choose **Restore my work** if the toolkit finds unsaved edits. **Recent runs** shows up to ten runs alongside the editor and loads step status and errors when you expand a run.
+
+**Find action** searches triggers and nested steps by name, scope, and type. Use **Environment variables · Where used** to reveal the fields that read each setting. In **Recent runs**, filter failed runs, sort steps by duration, or jump to the first failure. **Inspect output** loads a selected step's output on demand. Select a JSON field to copy its Power Automate expression.
+
+Use **More commands → Copy dynamic run link** to copy an expression for the current run that you can paste into a notification or flow input. **Check availability** tests Flow service, run history, and Dataverse access and gives you a reconnect shortcut.
+
+### Export a managed solution
+
+In **Edit flow JSON**, open **More commands → Export managed solution**. Select an unmanaged solution that contains the open flow and choose **Prepare export**. Dataverse generates the managed ZIP for that entire solution. The exporter uses the saved server version and keeps publishing separate.
+
+Before **Download managed ZIP**, review the flows, connection references, environment variables, and fixed destinations detected in the returned archive. The recipient maps the connections and supplies values for their environment. **Download blank deployment settings** creates an optional settings file for Power Platform deployment tools. Fixed destinations still require review in the source solution.
+
+**Review existing ZIP** checks a local solution archive in the same panel and works without Dataverse access.
+
+### Prepare a solution import
+
+Open **Prepare solution import** in the target environment's Flows list or the editor. Choose the solution ZIP, select compatible target connections, and enter the target environment-variable values. Use **Download deployment settings** with `pac solution import --settings-file`, or use the review as a checklist in Power Automate. Switch environments in Power Automate before opening the tool to prepare mappings for another target.
 
 ## Available Scripts
 

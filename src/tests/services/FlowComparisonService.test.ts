@@ -35,7 +35,7 @@ describe('FlowComparisonService baselines', () => {
 
     const a = await service.getBaseline('env', 'flow-a');
     expect(a?.label).toBe('Before');
-    expect(a?.definition).toEqual({ definition: { actions: { A: {} } } });
+    expect(a?.definition).toEqual({ connectionReferences: { a: 1 }, definition: { actions: { A: {} } } });
     expect(FlowComparisonService.formatSavedAt(a!.savedAt, new Date(2026, 9, 8))).toBe('3 Oct 14:02');
     expect((await service.getBaseline('env', 'flow-b'))?.definition.definition.actions).toEqual({ B: {} });
     expect(await service.getBaseline('other-env', 'flow-a')).toBeNull();
@@ -48,6 +48,17 @@ describe('FlowComparisonService baselines', () => {
     const result = service.compareWithBaseline(baseline, flow({ A: { type: 'Compose' }, B: { type: 'Http' } }));
 
     expect(result.newItems.map((d) => d.pathString)).toEqual(['definition.actions.B']);
+  });
+
+  it('reports reference changes for current baselines and supports older baselines', async () => {
+    const service = new FlowComparisonService(memoryStore());
+    const baseline = await service.saveBaseline('env', 'f', flow({}));
+    const changed = { ...flow({}), connectionReferences: { a: 2 } };
+    const result = service.compareWithBaseline(baseline, changed);
+    expect(result.summary.connectionsChanged).toBe(1);
+    expect(result.editedItems.map(item => item.pathString)).toEqual(['connectionReferences.a']);
+    const old = { ...baseline, definition: { definition: { actions: {} } } };
+    expect(service.compareWithBaseline(old, changed).hasDifferences).toBe(false);
   });
 
   it('clears a baseline', async () => {

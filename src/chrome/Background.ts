@@ -1,5 +1,5 @@
 import { ActionsService, BackgroundService, ExtensionCommunicationService, StorageService } from "../services";
-import { FlowEditorActions, TokenAudience } from "../services/interfaces/IFlowEditorActions";
+import { FlowEditorActions, RunExportMessage, RunExportSession, TokenAudience } from "../services/interfaces/IFlowEditorActions";
 import { DiagnosticsStore, formatDiagnostics } from "../services/Diagnostics";
 import {
     API_REQUEST_URL_PATTERNS,
@@ -19,7 +19,7 @@ import {
     summarizeTokens,
     upsertAudienceToken,
 } from "./tokenStore";
-import { readPlatformSettings } from "./DesignerButton";
+import { parseRunHistoryUrl, readPlatformSettings } from "./DesignerButton";
 
 const storageService = new StorageService();
 const actionsService = new ActionsService();
@@ -353,6 +353,10 @@ function listenFlowApiRequests(details: chrome.webRequest.WebRequestHeadersDetai
                 host: endpoint.host,
                 flags: { hasToken: true, fromMakerPage },
             });
+            if (result.tokenChanged && fromMakerPage && (endpoint.audience === 'flow' || endpoint.audience === 'powerPlatform')) {
+                const message: RunExportMessage = { type: 'run-export-session-changed', tabId: details.tabId };
+                chrome.runtime.sendMessage(message, () => { void chrome.runtime.lastError; });
+            }
         }
     }
 
@@ -474,9 +478,15 @@ function openFlowEditor(tab: chrome.tabs.Tab) {
         return { success: false, error: tokenProblem };
     }
 
-    const appUrl = `${chrome.runtime.getURL("flow-editor.html")}?envId=${
-        state.lastMatchedRequest.envId
-    }&flowId=${state.lastMatchedRequest.flowId}`;
+    const params = new URLSearchParams({
+        envId: state.lastMatchedRequest.envId,
+        flowId: state.lastMatchedRequest.flowId,
+    });
+    if (currentFlowData && tab.url && isMakerOrigin(tab.url)) {
+        const source = new URL(tab.url);
+        params.set('portalUrl', source.origin + source.pathname);
+    }
+    const appUrl = `${chrome.runtime.getURL('flow-editor.html')}?${params}`;
 
     openToolkitTab(state, tab.id, appUrl, 'Failed to open flow editor. Please try again.');
     recordDiagnostic(tab.id, { kind: 'open-editor', flags: { hasToken: true, hasDataverse: !!state.tokens.dataverse, hasWorkflowEntityId: !!state.workflowEntity } });
@@ -518,11 +528,27 @@ function openFlowsList(tab: chrome.tabs.Tab) {
         return { success: false, error: tokenProblem };
     }
 
-    const appUrl = `${chrome.runtime.getURL("flow-editor.html")}?envId=${envId}`;
+    const params = new URLSearchParams({ envId });
+    if (tab.url && isMakerOrigin(tab.url)) params.set('portalUrl', new URL(tab.url).origin);
+    const appUrl = `${chrome.runtime.getURL('flow-editor.html')}?${params}`;
 
     openToolkitTab(state, tab.id, appUrl, 'Failed to open the flows list. Please try again.');
     recordDiagnostic(tab.id, { kind: 'open-flows-list', flags: { hasToken: true } });
 
+    return { success: true };
+}
+
+function openRunHistoryExport(tab: chrome.tabs.Tab) {
+    const match = parseRunHistoryUrl(tab.url);
+    if (tab.id === undefined || !match || !extensionEnabled) {
+        return { success: false, error: 'Open a Power Automate Run history page first.' };
+    }
+
+    const state = getOrCreateTabState(tab.id);
+    state.initiatorTabId = tab.id;
+    const params = new URLSearchParams({ envId: match.envId, flowId: match.flowId, mode: 'run-history' });
+    const appUrl = `${chrome.runtime.getURL('flow-editor.html')}?${params}`;
+    openToolkitTab(state, tab.id, appUrl, 'Failed to open the run history exporter. Please try again.');
     return { success: true };
 }
 
@@ -713,6 +739,36 @@ function getActiveTab(): Promise<chrome.tabs.Tab | undefined> {
     });
 }
 
+async function getRunExportSession(tabId: number): Promise<RunExportSession | null> {
+    if (!extensionEnabled || !Number.isInteger(tabId)) return null;
+    const tab = await chrome.tabs.get(tabId);
+    if (!tab.active || !tab.url || !isMakerOrigin(tab.url)) return null;
+    // Read the live URL instead of reusing a flow from an earlier page in this tab.
+    const target = extractFlowDataFromTabUrl(tab.url);
+    if (!target) return null;
+
+    const tokens = tabStates.get(tabId)?.tokens;
+    const flow = tokens?.flow;
+    const platform = tokens?.powerPlatform;
+    const validFlow = flow && !isAudienceTokenExpired(flow) ? flow : undefined;
+    const validPlatform = platform && !isAudienceTokenExpired(platform) ? platform : undefined;
+    const url = new URL(tab.url);
+    const flowPath = new RegExp(`/environments/[^/]+/(?:solutions/[^/]+/)?flows/(?:shared/)?${target.flowId}(?=/|$)`, 'i')
+        .exec(url.pathname)?.[0] ?? `/environments/${encodeURIComponent(target.envId)}/flows/${target.flowId}`;
+
+    return {
+        tabId,
+        ...target,
+        runHistoryUrl: parseRunHistoryUrl(tab.url) ? undefined : new URL(`${flowPath}/runs`, url).href,
+        credentials: {
+            legacyApiUrl: validFlow?.baseUrl,
+            legacyToken: validFlow?.token,
+            powerPlatformApiUrl: validPlatform?.baseUrl,
+            powerPlatformToken: validPlatform?.token,
+        },
+    };
+}
+
 /** The Power Automate tab a request is about: an editor's initiator, else the active tab. */
 async function resolveInitiatorTabId(sender: chrome.runtime.MessageSender, explicitTabId?: unknown): Promise<number | undefined> {
     if (sender.tab?.id !== undefined) {
@@ -773,6 +829,15 @@ async function ensureContentScript(): Promise<{ success: boolean; injected?: boo
 }
 
 function handleRuntimeMessage(message: any, sender: chrome.runtime.MessageSender, sendResponse: (response?: any) => void) {
+        if (message.type === 'get-run-export-session') {
+            if (!isExtensionPageSender(sender)) {
+                sendResponse(null);
+            } else {
+                getRunExportSession(message.tabId).then(sendResponse, () => sendResponse(null));
+            }
+            return true;
+        }
+
         // Handle surface mode change messages
         if (message.type === 'set-view-mode') {
             const mode = message.mode as 'popup' | 'sidepanel';
@@ -818,9 +883,10 @@ function handleRuntimeMessage(message: any, sender: chrome.runtime.MessageSender
         }
 
         // Handle flow editor messages
-        if (message.type === 'app-loaded' || message.type === 'refresh' || message.type === 'open-flow-editor' || message.type === 'open-flows-list' || message.type === 'check-flow-page') {
-            if (message.type === 'open-flow-editor' || message.type === 'open-flows-list') {
-                const open = message.type === 'open-flow-editor' ? openFlowEditor : openFlowsList;
+        if (message.type === 'app-loaded' || message.type === 'refresh' || message.type === 'open-flow-editor' || message.type === 'open-flows-list' || message.type === 'open-run-history-export' || message.type === 'check-flow-page') {
+            if (message.type === 'open-flow-editor' || message.type === 'open-flows-list' || message.type === 'open-run-history-export') {
+                const open = message.type === 'open-run-history-export' ? openRunHistoryExport :
+                    message.type === 'open-flow-editor' ? openFlowEditor : openFlowsList;
 
                 // Use sender.tab when message comes from a content script (bridge
                 // or the in-designer "Edit JSON" button), fall back to querying

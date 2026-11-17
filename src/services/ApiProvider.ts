@@ -26,6 +26,8 @@ export interface ApiRequest {
   absolute?: boolean;
   /** Retries for 429/5xx/network errors (default 3). */
   retries?: number;
+  signal?: AbortSignal;
+  redirect?: RequestRedirect;
   /** Resolve with status, headers and request ids instead of just the body. */
   raw?: boolean;
 }
@@ -203,7 +205,17 @@ function hostOfUrl(url: string): string | undefined {
  */
 export function createApiClient(options: ApiClientOptions): ApiClient {
   const fetchImpl = options.fetchImpl || ((...args: Parameters<typeof fetch>) => fetch(...args));
-  const sleep = options.sleep || ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  const sleep = (ms: number, signal?: AbortSignal) => new Promise<void>((resolve, reject) => {
+    const abort = () => {
+      clearTimeout(timer);
+      reject(signal?.reason);
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', abort);
+      resolve();
+    }, ms);
+    signal?.addEventListener('abort', abort, { once: true });
+  });
   const retryDelay = options.retryDelayMs ?? 1000;
 
   const report = (event: ApiDiagnosticEvent) => {
@@ -215,6 +227,7 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
   };
 
   async function send(req: ApiRequest, attempt: number): Promise<any> {
+    req.signal?.throwIfAborted();
     const details = options.getDetails();
     const audience: ApiAudience = req.audience || 'primary';
     const target = resolveTarget(details, audience);
@@ -264,7 +277,8 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
       report({ kind: 'api', method: req.method, host, status, audience, durationMs: Date.now() - started, requestIds, flags: { hasToken: true, retried: attempt < maxRetries }, detail: (error as ApiError).code || undefined });
       if (attempt < maxRetries) {
         debugLog(`Retrying in ${delayMs}ms (attempt ${attempt + 1}/${maxRetries})`);
-        await sleep(delayMs);
+        req.signal?.throwIfAborted();
+        await (options.sleep ? options.sleep(delayMs) : sleep(delayMs, req.signal));
         return send(req, attempt + 1);
       }
       throw error;
@@ -276,8 +290,11 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
         method: req.method,
         body: req.body !== undefined && req.body !== null ? (typeof req.body === 'string' ? req.body : JSON.stringify(req.body)) : undefined,
         headers,
+        signal: req.signal,
+        redirect: req.redirect,
       });
     } catch (error) {
+      req.signal?.throwIfAborted();
       if (error instanceof TypeError) {
         debugError('Network error:', error);
         return retryOrThrow(undefined, retryDelay * (attempt + 1), new Error('Network error. Please check your connection and try again.'), { clientRequestId });

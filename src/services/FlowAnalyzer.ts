@@ -9,6 +9,7 @@ import {
   getComplexityMap,
   getScoringRuleValue,
 } from '../config/AnalysisConfig';
+import { collectConnectionUses } from '../features/flow-editor/flowConnections';
 import { getConnectorService } from './ConnectorService';
 
 export interface FlowAction {
@@ -192,7 +193,7 @@ export class FlowAnalyzer {
       this.extractVariables(def.actions || {});
 
       // Analyze connection references
-      this.extractConnections(this.definition.connectionReferences || {});
+      this.extractConnections(def, this.connectionRefs);
 
       // Calculate scores
       const complexity = this.calculateComplexity();
@@ -594,17 +595,12 @@ export class FlowAnalyzer {
     return (matches?.length || 0) > 1; // More than just the initialization
   }
 
-  private extractConnections(connectionRefs: any): void {
+  private extractConnections(definition: unknown, connectionRefs: any): void {
     if (!connectionRefs) return;
 
-    const connectionCounts: Record<string, number> = {};
-
-    // Count usage of each connection in actions
-    for (const action of this.actions) {
-      const connector = action.connector;
-      if (connector && connector !== 'Unknown') {
-        connectionCounts[connector] = (connectionCounts[connector] || 0) + 1;
-      }
+    const connectionCounts = new Map<string, number>();
+    for (const { alias } of collectConnectionUses(definition)) {
+      connectionCounts.set(alias, (connectionCounts.get(alias) ?? 0) + 1);
     }
 
     for (const [refName, refDef] of Object.entries(connectionRefs)) {
@@ -613,7 +609,7 @@ export class FlowAnalyzer {
         conName: refName,
         appId: ref.id || ref.api?.name || '',
         opId: ref.connectionRuntimeUrl || '',
-        count: connectionCounts[refName] || 0,
+        count: connectionCounts.get(refName) ?? 0,
       });
     }
   }

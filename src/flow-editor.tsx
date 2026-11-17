@@ -22,6 +22,9 @@ import { lazy, Suspense, useEffect, useState } from 'react';
 const FlowEditorPage = lazy(
   () => import(/* webpackChunkName: "flow-editor-page" */ './features/flow-editor/FlowEditorPage')
 );
+const RunHistoryExportPage = lazy(
+  () => import(/* webpackChunkName: "run-history-export" */ './features/run-history/RunHistoryExportPage')
+);
 
 /** How long to wait for the Power Automate tab to hand over a sign-in token. */
 const AUTH_TIMEOUT_MS = 30000;
@@ -55,11 +58,13 @@ function App() {
   const urlParams = new URLSearchParams(window.location.search);
   const envId = urlParams.get('envId');
   const flowId = urlParams.get('flowId');
+  const isRunHistoryExport = urlParams.get('mode') === 'run-history' && Boolean(envId && flowId);
   // An envId on its own means "show every flow in this environment"; adding a
   // flowId opens that one flow in the JSON editor.
   const isFlowsList = Boolean(envId) && !flowId;
 
   useEffect(() => {
+    if (isRunHistoryExport) return;
     if (!envId) {
       setAuthProblem('missing-params');
       return;
@@ -70,18 +75,25 @@ function App() {
     }
     const timeout = setTimeout(() => setAuthProblem('timeout'), AUTH_TIMEOUT_MS);
     return () => clearTimeout(timeout);
-  }, [apiProviderRoot.isApiReady, envId]);
+  }, [apiProviderRoot.isApiReady, envId, isRunHistoryExport]);
 
   useEffect(() => {
+    if (isRunHistoryExport) return;
     if (authProblem === 'missing-params') document.title = 'Open a flow — Power Automate Toolkit';
     else if (authProblem === 'timeout') document.title = 'Not connected — Power Automate Toolkit';
     else if (!apiProviderRoot.isApiReady) document.title = 'Connecting… — Power Automate Toolkit';
-  }, [authProblem, apiProviderRoot.isApiReady]);
+  }, [authProblem, apiProviderRoot.isApiReady, isRunHistoryExport]);
 
   const reload = () => window.location.reload();
 
   let content: JSX.Element;
-  if (authProblem === 'missing-params') {
+  if (isRunHistoryExport && envId && flowId) {
+    content = (
+      <Suspense fallback={<Spinner size={SpinnerSize.large} label="Loading run history exporter…" />}>
+        <RunHistoryExportPage envId={envId} flowId={flowId} />
+      </Suspense>
+    );
+  } else if (authProblem === 'missing-params') {
     content = (
       <BlockedState
         icon="OpenInNewWindow"

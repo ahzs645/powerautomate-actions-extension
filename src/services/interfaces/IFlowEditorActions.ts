@@ -75,6 +75,20 @@ export interface CheckFlowPage {
   type: 'check-flow-page';
 }
 
+export type RunExportCredentials = Pick<TokenChanged, 'legacyApiUrl' | 'legacyToken' | 'powerPlatformApiUrl' | 'powerPlatformToken'>;
+
+export interface RunExportSession {
+  tabId: number;
+  envId: string;
+  flowId: string;
+  runHistoryUrl?: string;
+  credentials: RunExportCredentials;
+}
+
+export type RunExportMessage =
+  | { type: 'get-run-export-session'; tabId: number }
+  | { type: 'run-export-session-changed'; tabId: number };
+
 export interface FlowPageStatus {
   type: 'flow-page-status';
   isFlowPage: boolean;

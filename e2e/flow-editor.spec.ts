@@ -1,4 +1,4 @@
-import { test, expect, type BrowserContext, type Page, type Worker } from '@playwright/test';
+import { test, expect, type BrowserContext, type Locator, type Page, type Worker } from '@playwright/test';
 import {
   launchWithExtension,
   openFlowEditor,
@@ -225,6 +225,121 @@ test('download JSON produces a file with the flow name', async () => {
   await editor.close();
 });
 
+test('finds a nested action and the specific field that reads a setting', async () => {
+  const fixture = FLOW_A.response.properties;
+  const editor = await openAndLoadFlow(FLOW_A.id, FLOW_A.name, { ...FLOW_A.response, properties: { ...fixture, definition: {
+    ...fixture.definition,
+    parameters: { 'Site (demo_site)': { type: 'String' } },
+    actions: { Check_site: { type: 'Scope', actions: { Lookup_site: { type: 'Compose', inputs: "@parameters('Site (demo_site)')" } } } },
+  } } });
+  const more = editor.getByRole('menuitem', { name: 'More commands' }).or(editor.getByRole('button', { name: 'More commands' })).first();
+  const find = editor.getByRole('menuitem', { name: 'Find action', exact: true }).or(editor.getByRole('button', { name: 'Find action', exact: true }));
+  if (!await find.isVisible()) await more.click();
+  await find.click();
+  await editor.getByRole('searchbox', { name: 'Search steps' }).fill('lookup site');
+  await editor.getByText('Check_site › Lookup_site', { exact: true }).click();
+  await expect(editor.getByRole('heading', { name: 'Find action' })).toBeHidden();
+
+  await more.click();
+  await editor.getByRole('menuitem', { name: 'Environment variables · Where used' }).click();
+  await editor.getByText('Where used (1)', { exact: true }).click();
+  await editor.getByText('Check_site › Lookup_site · inputs', { exact: true }).click();
+  await expect(editor.getByRole('heading', { name: 'Environment variables and flow parameters' })).toBeHidden();
+
+  await editor.evaluate(() => {
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: {
+      writeText: async (value: string) => sessionStorage.setItem('test:clipboard', value),
+    } });
+  });
+  await more.click();
+  await editor.getByRole('menuitem', { name: 'Copy dynamic run link' }).click();
+  await expect(editor.getByText('Dynamic run link expression copied.')).toBeVisible();
+  expect(await editor.evaluate(() => sessionStorage.getItem('test:clipboard'))).toMatch(/workflow\(\)\?\['run'\]\?\['name'\]/);
+
+  await more.click();
+  await editor.getByRole('menuitem', { name: 'Check availability' }).click();
+  await expect(editor.getByRole('heading', { name: 'Connection availability' })).toBeVisible();
+  await expect(editor.getByText('Available', { exact: true })).toBeVisible();
+  await expect(editor.getByText('Dataverse sign-in has not been captured.')).toBeVisible();
+  await editor.close();
+});
+
+test('definition-only edits save with the original connection references', async () => {
+  const editor = await openAndLoadFlow(FLOW_A.id, FLOW_A.name, FLOW_A.response);
+  const original = FLOW_A.response.properties;
+  const edited = { ...original.definition, contentVersion: '2.0.0.0' };
+  await editor.getByRole('radio', { name: 'Definition only' }).click();
+  const definition = editor.getByRole('textbox', { name: 'Flow definition JSON' });
+  await expect(definition).toBeVisible();
+  await pasteEditorJson(definition, edited);
+  await expect(editor.getByText('Unsaved changes', { exact: true })).toBeVisible();
+
+  await editor.getByRole('menuitem', { name: 'Save', exact: true })
+    .or(editor.getByRole('button', { name: 'Save', exact: true })).click();
+  const confirmation = editor.getByRole('alertdialog').or(editor.getByRole('dialog'));
+  await expect(confirmation.getByRole('button', { name: 'Save', exact: true })).toBeVisible();
+  await expect(confirmation.getByText('Connection changes', { exact: true })).toHaveCount(0);
+  const patch = editor.waitForRequest(request => request.method() === 'PATCH');
+  await confirmation.getByRole('button', { name: 'Save', exact: true }).click();
+  const payload = (await patch).postDataJSON();
+  expect(payload.properties.definition).toEqual(edited);
+  expect(payload.properties.connectionReferences).toEqual(original.connectionReferences);
+  await expect(editor.getByText(`Flow "${FLOW_A.name}" saved.`)).toBeVisible();
+  await expect(editor.getByText('Unsaved changes', { exact: true })).toHaveCount(0);
+  await editor.close();
+});
+
+test('shows connection changes before save and blocks a missing reference', async () => {
+  const editor = await openAndLoadFlow(FLOW_A.id, FLOW_A.name, FLOW_A.response);
+  const original = FLOW_A.response.properties;
+  const [alias, binding] = Object.entries(original.connectionReferences)[0];
+  const full = editor.getByRole('textbox', { name: 'Full flow JSON' });
+  const save = editor.getByRole('menuitem', { name: 'Save', exact: true })
+    .or(editor.getByRole('button', { name: 'Save', exact: true }));
+
+  await pasteEditorJson(full, {
+    definition: original.definition, connectionReferences: { [alias]: { ...binding, connectionName: 'other' } },
+  });
+  await save.click();
+  const confirmation = editor.getByRole('alertdialog').or(editor.getByRole('dialog'));
+  await expect(confirmation.getByText(`Changed reference ${alias}`)).toBeVisible();
+  await expect(confirmation.getByText(/Action Send_an_email/)).toBeVisible();
+  await confirmation.getByRole('button', { name: 'Cancel' }).click();
+
+  await pasteEditorJson(full, { definition: original.definition, connectionReferences: {} });
+  await save.click();
+  await expect(editor.getByText(/Cannot save.*uses missing connection reference/)).toBeVisible();
+  await expect(confirmation).toHaveCount(0);
+  // Undo the test edits to avoid leaving a draft in the shared extension session.
+  await full.focus();
+  await full.press('ControlOrMeta+z');
+  await full.press('ControlOrMeta+z');
+  await expect(editor.getByText('Unsaved changes', { exact: true })).toHaveCount(0);
+  await editor.close();
+});
+
+test('offers to restore unsaved work after reopening a flow', async () => {
+  const editor = await openAndLoadFlow(FLOW_B.id, FLOW_B.name, FLOW_B.response);
+  const original = FLOW_B.response.properties;
+  const draft = { ...original.definition, contentVersion: '2.0.0.0' };
+  await editor.getByRole('radio', { name: 'Definition only' }).click();
+  await pasteEditorJson(editor.getByRole('textbox', { name: 'Flow definition JSON' }), draft);
+  const recoveryKey = `paToolkit.flowEditor.recovery:${ENV_ID.toLowerCase()}:${FLOW_B.id.toLowerCase()}`;
+  await expect.poll(async () => serviceWorker.evaluate(async (key) => {
+    const state = await chrome.storage.session.get(key);
+    return JSON.parse(state[key]?.text ?? '{}').definition?.contentVersion;
+  }, recoveryKey)).toBe('2.0.0.0');
+  await editor.close();
+
+  const reopened = await openAndLoadFlow(FLOW_B.id, FLOW_B.name, FLOW_B.response);
+  await reopened.getByRole('button', { name: 'Restore my work' }).click();
+  await expect(reopened.getByText('Unsaved changes', { exact: true })).toBeVisible();
+  await reopened.getByRole('radio', { name: 'Definition only' }).click();
+  await expect(reopened.locator('.monaco-editor:visible .view-lines')).toContainText('2.0.0.0');
+  await reopened.close();
+  await serviceWorker.evaluate(key => chrome.storage.session.remove(key), recoveryKey);
+});
+
 /**
  * TEST 8: Popup tab switching between Recorded, Copied, Favorites and Library.
  */
@@ -251,6 +366,16 @@ test('popup pivot tabs switch between action lists', async () => {
 });
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
+
+async function pasteEditorJson(editor: Locator, value: unknown) {
+  await editor.focus();
+  await editor.press('ControlOrMeta+a');
+  await editor.evaluate((input, text) => {
+    const clipboardData = new DataTransfer();
+    clipboardData.setData('text/plain', text);
+    input.dispatchEvent(new ClipboardEvent('paste', { clipboardData, bubbles: true, cancelable: true }));
+  }, JSON.stringify(value, null, 2));
+}
 
 async function getEditorContent(page: Page): Promise<string> {
   // Monaco may expose models through different paths depending on how it's bundled.

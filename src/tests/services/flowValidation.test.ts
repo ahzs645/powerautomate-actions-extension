@@ -113,7 +113,7 @@ describe('summarizeValidation', () => {
 
 describe('flowPersistence', () => {
   it('round-trips the editor text', () => {
-    const doc = { displayName: 'A', definition: { actions: {} }, connectionReferences: { c: 1 } };
+    const doc = { displayName: 'A', definition: { actions: {} }, connectionReferences: { c: { id: '/apis/shared_test' } } };
     const parsed = parseEditorText(toEditorText(doc), 'A');
     expect(parsed).toEqual({ ok: true, doc });
   });
@@ -122,7 +122,7 @@ describe('flowPersistence', () => {
     expect(parseEditorText('{', 'A')).toEqual({ ok: false, error: expect.stringContaining('Invalid JSON') });
     expect(parseEditorText('{}', 'A')).toEqual({
       ok: false,
-      error: 'Missing "definition" property in flow definition',
+      error: 'The flow JSON must contain a "definition" object.',
     });
   });
 

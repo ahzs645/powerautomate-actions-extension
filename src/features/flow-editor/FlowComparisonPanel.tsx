@@ -151,7 +151,9 @@ export const FlowComparisonPanel: React.FC<FlowComparisonPanelProps> = ({
       setComparison({
         against: 'baseline',
         result: comparisonService.compareWithBaseline(baseline, parsed.value),
-        caption: `Editor compared with the baseline saved ${savedAtText}${baseline.label ? ` ("${baseline.label}")` : ''}.`,
+        caption: `Editor compared with the baseline saved ${savedAtText}${baseline.label ? ` ("${baseline.label}")` : ''}.` +
+          (Object.prototype.hasOwnProperty.call(baseline.definition, 'connectionReferences') ? '' :
+            ' Save a new baseline to include connection references in future comparisons.'),
       });
     } catch (err) {
       setError(`Comparison failed: ${err instanceof Error ? err.message : String(err)}`);

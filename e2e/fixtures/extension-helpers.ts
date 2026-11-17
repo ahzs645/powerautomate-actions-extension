@@ -1,6 +1,7 @@
 import { type BrowserContext, type Page, type Worker, chromium } from '@playwright/test';
 import path from 'path';
 import { API_HOST, FAKE_TOKEN } from './flow-data';
+import type { TokenChanged } from '../../src/services/interfaces/IFlowEditorActions';
 
 const EXTENSION_PATH = path.resolve(__dirname, '../../build');
 
@@ -133,12 +134,13 @@ export async function mockFlowApi(
  */
 export async function injectToken(
   page: Page,
-  serviceWorker: Worker
+  serviceWorker: Worker,
+  endpoints: Partial<TokenChanged> = {}
 ) {
   const editorUrl = page.url();
 
   await serviceWorker.evaluate(
-    async ({ editorUrl, token, apiUrl }) => {
+    async ({ editorUrl, token, apiUrl, endpoints }) => {
       // Find the editor tab by its URL
       const allTabs = await chrome.tabs.query({});
       const editorTab = allTabs.find((t) => t.url === editorUrl);
@@ -152,9 +154,10 @@ export async function injectToken(
         type: 'token-changed',
         token,
         apiUrl,
+        ...endpoints,
       });
     },
-    { editorUrl, token: FAKE_TOKEN, apiUrl: API_HOST + '/' }
+    { editorUrl, token: FAKE_TOKEN, apiUrl: API_HOST + '/', endpoints }
   );
 
   // Wait for React state to update after receiving the message

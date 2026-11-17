@@ -17,6 +17,8 @@ import { mergeStyles } from '@fluentui/react/lib/Styling';
 import { Text } from '@fluentui/react/lib/Text';
 import { useEffect, useMemo, useState } from 'react';
 import { LoaderModal } from '../../components/shared/LoaderModal';
+import { useApiProviderContext } from '../../services/ApiProvider';
+import { SolutionImportPanel } from '../flow-editor/SolutionImportPanel';
 import { StatusMessages } from '../flow-editor/useStatusMessages';
 import { OwnerBadge, StateBadge } from './FlowBadges';
 import {
@@ -57,6 +59,9 @@ function formatDate(value?: string): string {
 }
 
 export const FlowsListPage: React.FC = () => {
+  const api = useApiProviderContext();
+  const [importOpen, setImportOpen] = useState(false);
+  const [portalUrl] = useState(() => new URLSearchParams(window.location.search).get('portalUrl') ?? undefined);
   const {
     flows,
     isLoading,
@@ -200,13 +205,23 @@ export const FlowsListPage: React.FC = () => {
           downloadFlowsAsZip(filteredFlows);
         },
       },
+      {
+        key: 'prepare-import',
+        text: 'Prepare solution import',
+        iconProps: { iconName: 'Import' },
+        disabled: !envId,
+        onClick: () => setImportOpen(true),
+      },
     ],
-    [flows, filteredFlows, selection, selectedCount, loadFlows, downloadFlowsAsZip]
+    [flows, filteredFlows, selection, selectedCount, loadFlows, downloadFlowsAsZip, envId]
   );
 
   return (
     <Stack styles={{ root: { flex: 1, overflow: 'hidden', backgroundColor: 'var(--color-bg)' } }}>
       <CommandBar items={commandBarItems} />
+      {importOpen && envId && <SolutionImportPanel api={api} envId={envId} environmentLabel={environmentName ?? undefined} portalUrl={portalUrl}
+        onReconnect={() => chrome.runtime.sendMessage({ type: 'refresh' }, () => { void chrome.runtime.lastError; })}
+        onDismiss={() => setImportOpen(false)} />}
       <StatusMessages messages={messages} onDismiss={dismissMessage} />
 
       {progress && (

@@ -25,11 +25,12 @@ export function initMonaco() {
       {
         uri: WORKFLOW_SCHEMA_URI,
         schema: workflowDefinitionSchema,
+        fileMatch: ['*flow-definition.json'],
       },
       {
         uri: 'https://power-automate-toolkit.local/flow-editor.json',
         schema: flowEditorSchema,
-        fileMatch: ['*'],
+        fileMatch: ['*flow-document.json'],
       },
     ],
   });

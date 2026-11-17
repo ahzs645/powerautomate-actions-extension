@@ -4,6 +4,7 @@
   "title": "Power Automate Toolkit Flow Editor",
   "description": "Edit Power Automate Flow",
   "type": "object",
+  "required": ["connectionReferences", "definition"],
   "properties": {
     "connectionReferences": {
       "type": "object",
